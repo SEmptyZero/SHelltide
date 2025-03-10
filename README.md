@@ -2,7 +2,6 @@
 
 ## Description
 SHelltide was designed for full automation of Helltide, currently in BETA.
-
 - Explore the helltide
 - Fights Elites/Champions/Boss enemies
 - Collect Chests
@@ -12,7 +11,13 @@ SHelltide was designed for full automation of Helltide, currently in BETA.
 - Supports Alfred
 - and more...
 
-## Configurations
+## Requirements
+You must have the following scripts for the script to work properly
+- Alfred: The Butler by Leoc V1.3.5
+- Looter by Letrico V1.2.6
+
+
+# Configurations
 ### Menu SHelltide
 - Enable --> Activates the SHelltide script
 - Enable Debug --> Activates for debug view
