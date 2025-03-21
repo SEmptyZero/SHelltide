@@ -21,7 +21,6 @@
 
 ### General Settings
 - **Enable:** Toggle the script ON/OFF
-- **Enable Debug:** Enable/Disable debug mode
 - **Start Rotation with Maiden:** Starts by going to the Maiden instead of exploring (requires at least 3 hearts)
 
 ### Info/Status Menu
