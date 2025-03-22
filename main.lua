@@ -36,6 +36,21 @@ local colors = {
 
 gui.elements.debug_toggle:set(false)
 
+SHelltidePlugin = {
+    enable = function()
+        gui.elements.main_toggle:set(true)
+    end,
+    disable = function()
+        gui.elements.main_toggle:set(false)
+    end,
+    status = function()
+        return {
+            ['enabled'] = gui.elements.main_toggle:get(),
+            ['task'] = task_manager.get_current_task().sm:get_current_state()
+        }
+    end,
+}
+
 on_update(function()
     update_locals()
     main_pulse()

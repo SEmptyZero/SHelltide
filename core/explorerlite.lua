@@ -213,36 +213,10 @@ local neighbor_directions = {
     { x = 1, y = 1 },  { x = 1, y = -1 },
     { x = -1, y = 1 }, { x = -1, y = -1 }
 }
-local function is_vertical_path_walkable(point_a, point_b)
-    local distance_horizontal = math.sqrt((point_b:x() - point_a:x())^2 + (point_b:y() - point_a:y())^2)
-    local distance_vertical = math.abs(point_b:z() - point_a:z())
 
-    if distance_vertical > 1.5 or distance_vertical / distance_horizontal > 0.6 then
-        return false
-    end
-
-    local vertical_steps = 10
-    local step_x = (point_b:x() - point_a:x()) / vertical_steps
-    local step_y = (point_b:y() - point_a:y()) / vertical_steps
-    local step_z = (point_b:z() - point_a:z()) / vertical_steps
-
-    for i = 1, vertical_steps do
-        local intermediate_point = vec3:new(
-            point_a:x() + step_x * i,
-            point_a:y() + step_y * i,
-            point_a:z() + step_z * i
-        )
-        intermediate_point = setHeight(intermediate_point)
-        if not isWalkable(intermediate_point) then
-            return false
-        end
-    end
-
-    return true
-end
-
-
-local max_height_difference = 1.5
+local max_height_difference = 1.2  -- Changed from 1.5 to 1.2
+local max_uphill_difference = 1.0  -- Stricter for going uphill
+local max_downhill_difference = 1.4  -- More lenient for going downhill
 
 local function get_neighbors(point)
     local neighbors = {}
@@ -259,11 +233,23 @@ local function get_neighbors(point)
             )
             neighbor = setHeight(neighbor)
             
-            local height_difference = math.abs(neighbor:z() - pz)
-
+            -- Get the raw height difference
+            local height_difference = neighbor:z() - pz
+            local abs_height_difference = math.abs(height_difference)
+            
+            -- Check if point is walkable
             if isWalkable(neighbor) then
-                if height_difference <= max_height_difference or is_vertical_path_walkable(point, neighbor) then
-                    neighbors[#neighbors+1] = neighbor
+                -- Apply different thresholds based on direction
+                if height_difference > 0 then
+                    -- Going uphill (neighbor is higher)
+                    if abs_height_difference <= max_uphill_difference or is_traversable_slope(point, neighbor) then
+                        neighbors[#neighbors+1] = neighbor
+                    end
+                else
+                    -- Going downhill or flat (neighbor is lower or same height)
+                    if abs_height_difference <= max_downhill_difference then
+                        neighbors[#neighbors+1] = neighbor
+                    end
                 end
             end
         end
@@ -272,7 +258,37 @@ local function get_neighbors(point)
     return neighbors
 end
 
-
+-- Helper function to detect if a slope is traversable (like stairs or ramps)
+function is_traversable_slope(start_point, end_point)
+    -- Check if intermediate points are walkable (indicates a smooth slope or stairs)
+    local step_count = 3
+    for i = 1, step_count do
+        local t = i / (step_count + 1)
+        local check_point = vec3:new(
+            start_point:x() + (end_point:x() - start_point:x()) * t,
+            start_point:y() + (end_point:y() - start_point:y()) * t,
+            start_point:z() + (end_point:z() - start_point:z()) * t
+        )
+        check_point = setHeight(check_point)
+        
+        -- If there's a sharp drop or rise in the middle, it's not traversable
+        local check_height_diff = math.abs(check_point:z() - start_point:z())
+        if not isWalkable(check_point) or check_height_diff > max_height_difference * 1.2 then
+            return false
+        end
+    end
+    
+    -- Check angle of slope (too steep is not traversable)
+    local distance_2d = math.sqrt(
+        (end_point:x() - start_point:x())^2 + 
+        (end_point:y() - start_point:y())^2
+    )
+    local height_diff = end_point:z() - start_point:z()
+    local slope_angle = math.abs(math.atan2(height_diff, distance_2d))
+    
+    -- Max angle around 30-35 degrees
+    return slope_angle <= math.rad(35)
+end
 
 local function has_line_of_sight(point_a, point_b)
     local distance = calculate_distance(point_a, point_b)

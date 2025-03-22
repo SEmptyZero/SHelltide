@@ -50,16 +50,23 @@ chests_states.ALREADY_CHEST_FOUND = {
     end,
 }
 
-local current_chest = tracker.current_chest
-local curremt_chest_pos = nil
 chests_states.MOVING_TO_CHEST = {
     enter = function(sm)
         console.print("HELLTIDE: MOVING_TO_CHEST")
         explorerlite.is_task_running = false
-        current_chest = tracker.current_chest
     end,
     execute = function(sm)
-        current_chest_pos = current_chest:get_position()
+        local current_chest_pos = tracker.current_chest:get_position()
+
+        --[[ POSSIBILE CONTROLLO DI VALIDITà DELLA CHESTS
+        local check_chest = utils.find_closest_target(tracker.current_chest:get_skin_name())
+        if check_chest then
+            tracker.current_chest = check_chest
+            current_chest_pos = check_chest:get_position()
+            console.print("SI")
+        else
+            console.print("NO")
+        end ]]
         
         local nearby_enemies = utils.find_enemies_in_radius_with_z(current_chest_pos, 15, 2)
         if #nearby_enemies > 1 and utils.distance_to(current_chest_pos) < 15 then
@@ -83,13 +90,34 @@ chests_states.MOVING_TO_CHEST = {
             end
         else
             orbwalker.set_clear_toggle(false)
-            if current_chest then
-                if utils.distance_to(current_chest) > 2 then
+            if tracker.current_chest then
+                if utils.distance_to(tracker.current_chest) > 2 then
                     explorerlite:set_custom_target(current_chest_pos)
                     explorerlite:move_to_target()
                 else
                     sm:change_state("INTERACT_CHEST")
                 end
+            end
+        end
+    end,
+    exit = function(sm)
+    end,
+}
+
+chests_states.MOVING_TO_SILENT_CHEST = {
+    enter = function(sm)
+        console.print("HELLTIDE: MOVING_TO_CHEST")
+        explorerlite.is_task_running = false
+    end,
+    execute = function(sm)
+        local current_chest_pos = tracker.current_chest:get_position()
+        
+        if tracker.current_chest then
+            if utils.distance_to(tracker.current_chest) > 1.9 then
+                explorerlite:set_custom_target(current_chest_pos)
+                explorerlite:move_to_target()
+            else
+                sm:change_state("INTERACT_CHEST")
             end
         end
     end,

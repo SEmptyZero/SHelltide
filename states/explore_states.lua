@@ -293,7 +293,6 @@ explore_states.EXPLORE_HELLTIDE = {
             tracker.waypoint_index = nearest_index
             console.print("Waypoint di partenza selezionato: " .. nearest_index)
         end
-
     end,
     execute = function(sm)
 
@@ -338,8 +337,9 @@ explore_states.EXPLORE_HELLTIDE = {
         --explorerlite:set_custom_target(vec3:new(-565.189758, -368.133087, 35.649544))
         --explorerlite:set_custom_target(vec3:new(-1794.236938, -1281.271606, 0.839844))
         --explorerlite:set_custom_target(vec3:new(-825.754883, 427.040588, 3.966681))
-        --explorerlite:set_custom_target(k)
+        --explorerlite:set_custom_target(get_cursor_position())
         --explorerlite:move_to_target()
+        --explorerlite:follow_segmented_path(tracker.waypoints[1])
 
         local enemies = utils.find_enemies_in_radius(tracker.player_position, 3)
         if #enemies > 0 or explore_states:near_traversal_actor() then
@@ -400,7 +400,7 @@ explore_states.EXPLORE_HELLTIDE = {
                         local silent_chest = utils.find_closest_target("Hell_Prop_Chest_Rare_Locked_GamblingCurrency")
                         if silent_chest and silent_chest:is_interactable() and utils.distance_to(silent_chest) < 25 then
                             tracker.current_chest = silent_chest
-                            sm:change_state("MOVING_TO_CHEST")
+                            sm:change_state("MOVING_TO_SILENT_CHEST")
                             return
                         end
                     end
@@ -505,9 +505,11 @@ explore_states.INIT = {
 
         console.print("HELLTIDE: INIT")
         explorerlite.is_task_running = true
+        tracker.waypoints = {}
+        explorerlite:clear_path_and_target()
 
         local waypoints_loaded = check_and_load_waypoints()
-        if waypoints_loaded then
+        if waypoints_loaded and tracker.waypoints and #tracker.waypoints > 0 then
             console.print("HELLTIDE: INIT WAYPOINTS")
             tracker.waypoint_index = 1
             tracker.chests_found = {}
