@@ -1,4 +1,4 @@
-# S Helltide - Chests + Maiden Farming  - v1.1.7b BETA
+# S Helltide - Chests + Maiden Farming  - v1.1.8b BETA
 
 ## Features
 - Explores Helltide
