@@ -50,7 +50,15 @@ local helltide_task = {
         end
 
         if tracker.local_player and tracker.local_player:is_dead() then
-            revive_at_checkpoint()
+            if self.sm and self.sm:get_current_state() ~= "RESURRECT_AND_RETURN" then 
+                console.print("HELLTIDE: Player died.")
+                tracker.previous_state_before_death = self.sm:get_current_state()
+                tracker.death_recovery_waypoint_index = tracker.waypoint_index
+                console.print("HELLTIDE: Stored death recovery waypoint index: " .. tracker.death_recovery_waypoint_index .. " from state: " .. tracker.previous_state_before_death)
+                
+                self.sm:change_state("RESURRECT_AND_RETURN")
+                return
+            end
         end
 
         self.sm:update()

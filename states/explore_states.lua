@@ -82,14 +82,14 @@ function explore_states:get_closest_waypoint_index(target_position, min_margin)
 end
 
 function explore_states:find_traversal_actor(interect)
-    local actors = actors_manager:get_all_actors()
+    local actors = tracker.all_actors
     local player_pos = tracker.player_position
     local curr_actor = nil
     interact = interact or true
     for _, actor in pairs(actors) do
         local name = actor:get_skin_name()
         local actor_pos = actor:get_position()
-        if name:match("[Tt]raversal") and actor:is_interactable() and utils.calculate_distance(player_pos, actor_pos) < 3.5 then
+        if name:match("[Tt]raversal_[Gg]izmo") and actor:is_interactable() and utils.calculate_distance(player_pos, actor_pos) < 3.5 then
             --console.print("Match?")
             --local actor_pos = actor:get_position()
             orbwalker.set_clear_toggle(true)
@@ -108,13 +108,13 @@ function explore_states:find_traversal_actor(interect)
 end
 
 function explore_states:near_traversal_actor()
-    local actors = actors_manager:get_all_actors()
+    local actors = tracker.all_actors
     local player_pos = tracker.player_position
 
     for _, actor in pairs(actors) do
         local name = actor:get_skin_name()
         local actor_pos = actor:get_position()
-        if name:match("[Tt]raversal") and actor:is_interactable() and utils.calculate_distance(player_pos, actor_pos) < 10 then
+        if name:match("[Tt]raversal_[Gg]izmo") and actor:is_interactable() and utils.calculate_distance(player_pos, actor_pos) < 10 then
             return true
         end
     end
@@ -132,7 +132,7 @@ function explore_states:navigate_to_waypoint(target_index)
 
     if tracker.current_target_index == nil or tracker.current_target_index ~= target_index or tracker.a_start_waypoint_path == nil then
         tracker.current_target_index = target_index
-        local range_threshold = 80
+        local range_threshold = 40
         local path = explorerlite:a_star_waypoint(waypoints, current_index, target_index, range_threshold)
         if not path then
             return false
@@ -283,6 +283,8 @@ explore_states.EXPLORE_HELLTIDE = {
         console.print("HELLTIDE: EXPLORE_HELLTIDE")
         explorerlite.is_task_running = false
         orbwalker.set_clear_toggle(false)
+        tracker.explore_helltide_is_near_traversal_cached = false
+        tracker.clear_key("explore_helltide_traversal_periodic_check")
 
         if skipStates[sm:get_previous_state()] then
             return
@@ -341,17 +343,26 @@ explore_states.EXPLORE_HELLTIDE = {
         --explorerlite:move_to_target()
         --explorerlite:follow_segmented_path(tracker.waypoints[1])
 
-        local enemies = utils.find_enemies_in_radius(tracker.player_position, 3)
-        if #enemies > 0 or explore_states:near_traversal_actor() then
+        --explorerlite:set_custom_target(vec3:new(-1794.236938, -1281.271606, 0.839844))
+        --explorerlite:move_to_target()
+
+        local enemies = utils.find_enemies_in_radius(tracker.player_position, 2)
+
+        if tracker.check_time("explore_helltide_traversal_periodic_check", 3) then
+            tracker.clear_key("explore_helltide_traversal_periodic_check")
+            tracker.explore_helltide_is_near_traversal_cached = explore_states:near_traversal_actor()
+        end
+
+        if #enemies > 0 or tracker.explore_helltide_is_near_traversal_cached then
             orbwalker.set_clear_toggle(true)
         else
             orbwalker.set_clear_toggle(false)
         end
 
         --START FIGHT ENEMIES
-        if tracker.check_time("helltide_delay_fight_enemies", 1.3) then
+        if tracker.check_time("helltide_delay_fight_enemies", 0.8) then
             tracker.clear_key("helltide_delay_fight_enemies")
-            local enemies = actors_manager.get_all_actors()
+            local enemies = tracker.all_actors
             for _, obj in ipairs(enemies) do
                 local obj_pos = obj:get_position()
                 if is_valid_target(obj) and math.abs(tracker.player_position:z() - obj_pos:z()) <= 0.80 and obj_pos:dist_to(tracker.player_position) < 15 then
@@ -364,11 +375,11 @@ explore_states.EXPLORE_HELLTIDE = {
         --FINISH FIGHT ENEMIES
 
         --START HELLTIDE CHESTS
-        if tracker.check_time("helltide_delay_find_chests", 1.6) then
+        if tracker.check_time("helltide_delay_find_chests", 0.9) then
             tracker.clear_key("helltide_delay_find_chests")
             for chest_name, _ in pairs(enums.helltide_chests_info) do
                 local chest_found = utils.find_closest_target(chest_name)
-                if chest_found and chest_found:is_interactable() and utils.distance_to(chest_found) < 35 and math.abs(tracker.player_position:z() - chest_found:get_position():z()) <= 4 then
+                if chest_name ~= "Hell_Prop_Chest_Rare_Locked_GamblingCurrency" and chest_found and chest_found:is_interactable() and utils.distance_to(chest_found) < 35 and math.abs(tracker.player_position:z() - chest_found:get_position():z()) <= 4 then
                     if not utils.is_chest_already_tracked(chest_found, tracker) then
                         tracker.current_chest = chest_found
                         sm:change_state("NEW_CHEST_FOUND")
@@ -484,8 +495,8 @@ explore_states.RETURN_CITY = {
     execute = function(sm)
         local reached = explore_states:navigate_to_waypoint(1)
 
-        local enemies = utils.find_enemies_in_radius(tracker.player_position, 3)
-        if #enemies > 0 or explore_states:near_traversal_actor() then
+        --local enemies = utils.find_enemies_in_radius(tracker.player_position, 3)
+        if explore_states:near_traversal_actor() then
             orbwalker.set_clear_toggle(true)
         else
             orbwalker.set_clear_toggle(false)
@@ -551,6 +562,44 @@ explore_states.RESTART = {
         tracker.waypoint_index = 1
 
         sm:change_state("EXPLORE_HELLTIDE")
+    end,
+}
+
+explore_states.RESURRECT_AND_RETURN = {
+    enter = function(sm)
+        console.print("HELLTIDE: RESURRECT_AND_RETURN entered.")
+        explorerlite.is_task_running = false
+        orbwalker.set_clear_toggle(false)
+        explorerlite:clear_path_and_target()
+    end,
+    execute = function(sm)
+
+        if tracker.local_player:is_dead() then
+            revive_at_checkpoint()
+            return
+        end
+
+        local reached = explore_states:navigate_to_waypoint(tracker.waypoint_index)
+
+        local enemies = utils.find_enemies_in_radius(tracker.player_position, 3)
+        if #enemies > 0 or explore_states:near_traversal_actor() then
+            orbwalker.set_clear_toggle(true)
+        else
+            orbwalker.set_clear_toggle(false)
+        end
+
+        if reached then
+            local target_state = tracker.previous_state_before_death
+            console.print("HELLTIDE: Reached recovery waypoint " .. tracker.waypoint_index .. ". Returning to state: " .. target_state)
+            tracker.previous_state_before_death = nil
+            
+            sm:change_state(target_state)
+        end
+    end,
+    exit = function(sm)
+        console.print("HELLTIDE: Exiting RESURRECT_AND_RETURN.")
+        orbwalker.set_clear_toggle(false) 
+        tracker.previous_state_before_death = nil 
     end,
 }
 

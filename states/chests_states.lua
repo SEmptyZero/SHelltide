@@ -50,13 +50,15 @@ chests_states.ALREADY_CHEST_FOUND = {
     end,
 }
 
+local current_helltide_chest_pos = nil
 chests_states.MOVING_TO_CHEST = {
     enter = function(sm)
         console.print("HELLTIDE: MOVING_TO_CHEST")
         explorerlite.is_task_running = false
+        current_helltide_chest_pos = tracker.current_chest:get_position()
+        explorerlite:clear_path_and_target()
     end,
     execute = function(sm)
-        local current_chest_pos = tracker.current_chest:get_position()
 
         --[[ POSSIBILE CONTROLLO DI VALIDITà DELLA CHESTS
         local check_chest = utils.find_closest_target(tracker.current_chest:get_skin_name())
@@ -67,9 +69,14 @@ chests_states.MOVING_TO_CHEST = {
         else
             console.print("NO")
         end ]]
+
+        if not utils.is_in_helltide() then
+            sm:change_state("RETURN_CITY")
+            return
+        end
         
-        local nearby_enemies = utils.find_enemies_in_radius_with_z(current_chest_pos, 15, 2)
-        if #nearby_enemies > 1 and utils.distance_to(current_chest_pos) < 15 then
+        local nearby_enemies = utils.find_enemies_in_radius_with_z(current_helltide_chest_pos, 15, 2)
+        if #nearby_enemies > 1 and utils.distance_to(current_helltide_chest_pos) < 15 then
             orbwalker.set_clear_toggle(true)
             local pos_first_enemy = nearby_enemies[1]:get_position()
             if utils.distance_to(nearby_enemies[1]) > 10 then
@@ -91,8 +98,8 @@ chests_states.MOVING_TO_CHEST = {
         else
             orbwalker.set_clear_toggle(false)
             if tracker.current_chest then
-                if utils.distance_to(tracker.current_chest) > 2 then
-                    explorerlite:set_custom_target(current_chest_pos)
+                if utils.distance_to_ignore_z(tracker.current_chest) > 1.9 or utils.distance_to(tracker.current_chest) > 1.9 then
+                    explorerlite:set_custom_target(current_helltide_chest_pos)
                     explorerlite:move_to_target()
                 else
                     sm:change_state("INTERACT_CHEST")
@@ -103,17 +110,23 @@ chests_states.MOVING_TO_CHEST = {
     exit = function(sm)
     end,
 }
-
+local current_chest_pos = nil
 chests_states.MOVING_TO_SILENT_CHEST = {
     enter = function(sm)
-        console.print("HELLTIDE: MOVING_TO_CHEST")
+        console.print("HELLTIDE: MOVING_TO_SILENT_CHEST")
         explorerlite.is_task_running = false
+        current_chest_pos = tracker.current_chest:get_position()
     end,
     execute = function(sm)
-        local current_chest_pos = tracker.current_chest:get_position()
+
+        if not utils.is_in_helltide() then
+            sm:change_state("RETURN_CITY")
+            return
+        end
         
+
         if tracker.current_chest then
-            if utils.distance_to(tracker.current_chest) > 1.9 then
+            if utils.distance_to_ignore_z(tracker.current_chest) > 1.9 or utils.distance_to(tracker.current_chest) > 1.9 then
                 explorerlite:set_custom_target(current_chest_pos)
                 explorerlite:move_to_target()
             else
@@ -146,7 +159,7 @@ chests_states.INTERACT_CHEST = {
 
 chests_states.WAIT_AFTER_INTERECTION = {
     enter = function(sm)
-        explorerlite.is_task_running = true
+        explorerlite.is_task_running = false
         console.print("HELLTIDE: WAIT_AFTER_INTERECTION")
         tracker.clear_key("helltide_wait_after_interaction")
     end,

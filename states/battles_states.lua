@@ -21,11 +21,12 @@ battles_states.FIGHT_ELITE_CHAMPION = {
     enter = function(sm)
         explorerlite.is_task_running = false
         console.print("HELLTIDE: FIGHT_ELITE_CHAMPION")
+        explorerlite:clear_path_and_target()
         orbwalker.set_clear_toggle(true)
         
         tracker.clear_key("limit_state_fight")
         if not tracker.target_selector then
-            local enemies = actors_manager.get_all_actors()
+            local enemies = tracker.all_actors
             for _, obj in ipairs(enemies) do
                 if is_valid_target(obj) and obj:get_position():dist_to(tracker.player_position) < DIST_FIGHT then
                     tracker.target_selector = obj
@@ -81,6 +82,7 @@ battles_states.WAIT_AFTER_FIGHT = {
         explorerlite.is_task_running = true
         console.print("HELLTIDE: WAIT_AFTER_FIGHT")
         tracker.clear_key("helltide_wait_after_fight")
+        explorerlite:clear_path_and_target()
     end,
     execute = function(sm)
         if LooteerPlugin.getSettings("looting") then

@@ -40,8 +40,8 @@ local enums = {
         {name = {"Frac_Tundra_S", "Frac_Kyovashad", "Frac_Tundra_N", "Frac_Glacier"}, id = 0xACE9B, file = "menestad"},
         {name = {"Scos_Coast", "Scos_Deep_Forest"}, id = 0x27E01, file = "marowen"},
         {name = {"Kehj_Oasis", "Kehj_Caldeum", "Kehj_HighDesert","Kehj_LowDesert", "Kehj_Gea_Kul"}, id = 0xDEAFC, file = "ironwolfs"},
-        {name = {"Hawe_Verge","Hawe_Wetland"}, id = 0x9346B, file = "wejinhani"},
-        {name = {"Step_South","Step_Central"}, id = 0x462E2, file = "jirandai"},
+        {name = {"Hawe_Verge","Hawe_Wetland","Hawe_ZakFort","Hawe_Zarbinzet"}, id = 0x9346B, file = "wejinhani"},
+        {name = {"Step_South","Step_Central","Step_Volcano"}, id = 0x462E2, file = "jirandai"},
     },
 
     maiden_positions = {

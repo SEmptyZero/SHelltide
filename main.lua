@@ -6,6 +6,7 @@ local tracker      = require "core.tracker"
 local function update_locals()
     tracker.local_player = get_local_player()
     tracker.player_position = tracker.local_player and tracker.local_player:get_position()
+    tracker.all_actors = actors_manager.get_all_actors()
 end
 
 local function main_pulse()

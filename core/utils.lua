@@ -17,7 +17,32 @@ function utils.distance_to(target)
         target_pos = target
     end
 
+    if not player_pos or not target_pos then
+        return nil
+    end
+
     return player_pos:dist_to(target_pos)
+end
+
+function utils.distance_to_ignore_z(target)
+    local player_pos = tracker.player_position
+    local target_pos
+
+    if not target then
+        return nil
+    end
+
+    if target.get_position then
+        target_pos = target:get_position()
+    elseif target.x then
+        target_pos = target
+    end
+
+    if not player_pos or not target_pos then
+        return nil
+    end
+
+    return player_pos:dist_to_ignore_z(target_pos)
 end
 
 ---Returns wether the player is in the zone name specified
@@ -91,7 +116,7 @@ function utils.get_random_point_circle(targetPos, ray, max_z_diff)
 end
 
 function utils.find_closest_target(name)
-    local actors = actors_manager:get_all_actors()
+    local actors = tracker.all_actors
     local closest_target = nil
     local closest_distance = math.huge
 
@@ -114,7 +139,7 @@ end
 
 function utils.find_target_by_position(targetPos, tol)
     tol = tol or 1
-    local all_targets = actors_manager.get_all_actors()
+    local all_targets = tracker.all_actors
     for _, obj in ipairs(all_targets) do
         local pos = obj:get_position()
         if pos and targetPos and pos:dist_to(targetPos) < tol then
@@ -126,7 +151,7 @@ end
 
 function utils.find_target_by_position_and_name(targetPos, name, tol)
     tol = tol or 1
-    local all_targets = actors_manager.get_all_actors()
+    local all_targets = tracker.all_actors
     for _, obj in ipairs(all_targets) do
         local pos = obj:get_position()
         if pos and targetPos and pos:dist_to(targetPos) < tol and obj:get_skin_name() == name then
@@ -179,7 +204,7 @@ end
 
 function utils.find_targets_in_radius(center, radius)
     local targets_in_range = {}
-    local all_targets = actors_manager.get_all_actors()
+    local all_targets = tracker.all_actors
     for _, obj in ipairs(all_targets) do
         local pos = obj:get_position()
         if pos and center and pos:dist_to(center) <= radius then
@@ -191,7 +216,7 @@ end
 
 function utils.find_enemies_in_radius(center, radius)
     local targets_in_range = {}
-    local all_targets = actors_manager.get_all_actors()
+    local all_targets = tracker.all_actors
     for _, obj in ipairs(all_targets) do
         local pos = obj:get_position()
         if pos and center and pos:dist_to(center) <= radius and obj:is_enemy() and not obj:is_dead() and not obj:is_untargetable() then
@@ -204,7 +229,7 @@ end
 function utils.find_enemies_in_radius_with_z(center, radius, z_pos)
     z_pos = z_pos or 0.80
     local targets_in_range = {}
-    local all_targets = actors_manager.get_all_actors()
+    local all_targets = tracker.all_actors
     for _, obj in ipairs(all_targets) do
         local pos = obj:get_position()
         if pos and center and pos:dist_to(center) <= radius and obj:is_enemy() and not obj:is_dead() and not obj:is_untargetable() and math.abs(tracker.player_position:z() - obj:get_position():z()) <= z_pos then
@@ -274,6 +299,26 @@ function utils.is_loading_or_limbo()
     end
     local world_name = current_world:get_name()
     return world_name:find("Limbo") ~= nil or world_name:find("Loading") ~= nil
+end
+
+function utils.is_safe_descent(p1, p2_candidate, max_safe_direct_drop, is_traversable_slope_func, slope_max_total_height_diff)
+    local height_difference = p2_candidate:z() - p1:z()
+
+    if height_difference >= -0.1 then 
+        return true
+    end
+
+    if math.abs(height_difference) <= max_safe_direct_drop then
+        return true
+    end
+
+    if is_traversable_slope_func then
+        if is_traversable_slope_func(p1, p2_candidate, slope_max_total_height_diff) then
+            return true
+        end
+    end
+
+    return false
 end
 
 return utils
