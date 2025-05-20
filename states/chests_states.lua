@@ -55,20 +55,14 @@ chests_states.MOVING_TO_CHEST = {
     enter = function(sm)
         console.print("HELLTIDE: MOVING_TO_CHEST")
         explorerlite.is_task_running = false
-        current_helltide_chest_pos = tracker.current_chest:get_position()
+        if tracker.navigate_to_waypoint_chest then
+            current_helltide_chest_pos = tracker.navigate_to_waypoint_chest
+        else
+            current_helltide_chest_pos = tracker.current_chest:get_position()
+        end
         explorerlite:clear_path_and_target()
     end,
     execute = function(sm)
-
-        --[[ POSSIBILE CONTROLLO DI VALIDITà DELLA CHESTS
-        local check_chest = utils.find_closest_target(tracker.current_chest:get_skin_name())
-        if check_chest then
-            tracker.current_chest = check_chest
-            current_chest_pos = check_chest:get_position()
-            console.print("SI")
-        else
-            console.print("NO")
-        end ]]
 
         if not utils.is_in_helltide() then
             sm:change_state("RETURN_CITY")
@@ -97,8 +91,8 @@ chests_states.MOVING_TO_CHEST = {
             end
         else
             orbwalker.set_clear_toggle(false)
-            if tracker.current_chest then
-                if utils.distance_to_ignore_z(tracker.current_chest) > 1.9 or utils.distance_to(tracker.current_chest) > 1.9 then
+            if current_helltide_chest_pos then
+                if utils.distance_to_ignore_z(current_helltide_chest_pos) > 1.9 or utils.distance_to(current_helltide_chest_pos) > 1.9 then
                     explorerlite:set_custom_target(current_helltide_chest_pos)
                     explorerlite:move_to_target()
                 else
@@ -123,10 +117,9 @@ chests_states.MOVING_TO_SILENT_CHEST = {
             sm:change_state("RETURN_CITY")
             return
         end
-        
 
-        if tracker.current_chest then
-            if utils.distance_to_ignore_z(tracker.current_chest) > 1.9 or utils.distance_to(tracker.current_chest) > 1.9 then
+        if current_chest_pos then
+            if utils.distance_to_ignore_z(current_chest_pos) > 1.9 or utils.distance_to(current_chest_pos) > 1.9 then
                 explorerlite:set_custom_target(current_chest_pos)
                 explorerlite:move_to_target()
             else
@@ -138,18 +131,24 @@ chests_states.MOVING_TO_SILENT_CHEST = {
     end,
 }
 
+local current_chest_interactable = nil
 chests_states.INTERACT_CHEST = {
     enter = function(sm)
         explorerlite.is_task_running = true
         console.print("HELLTIDE: INTERACT_CHEST")
+        current_chest_interactable = utils.find_target_by_position(tracker.navigate_to_waypoint_chest)
+        if current_chest_interactable then
+            tracker.current_chest = current_chest_interactable
+            tracker.navigate_to_waypoint_chest = nil
+        else
+            current_chest_interactable = tracker.current_chest
+        end
     end,
     execute = function(sm)
-        local current_chest = tracker.current_chest
-        
-        if current_chest then
-            local success = interact_object(current_chest)
+        if current_chest_interactable then
+            local success = interact_object(current_chest_interactable)
             if success then
-                if not current_chest:is_interactable() then
+                if not current_chest_interactable:is_interactable() then
                     sm:change_state("WAIT_AFTER_INTERECTION")
                 end
             end
@@ -166,6 +165,15 @@ chests_states.WAIT_AFTER_INTERECTION = {
     execute = function(sm)
         if LooteerPlugin.getSettings("looting") then
             tracker.clear_key("helltide_wait_after_interaction")
+        end
+
+        if not tracker.check_time("helltide_move_around_delay", 0.9) and current_chest_interactable then
+            local new_pos = utils.get_random_point_circle(current_chest_interactable:get_position(), 4, 1.2)
+            explorerlite:set_custom_target(new_pos)
+            if explorerlite:is_custom_target_valid() then
+                explorerlite:move_to_target()
+                tracker.clear_key("helltide_move_around_delay")
+            end
         end
         
         if tracker.check_time("helltide_wait_after_interaction", 3) then
@@ -199,6 +207,7 @@ chests_states.WAIT_AFTER_INTERECTION = {
         end
 
         tracker.current_chest = nil
+        current_chest_interactable = nil
     end,
 }
 

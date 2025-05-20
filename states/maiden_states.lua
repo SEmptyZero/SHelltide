@@ -39,11 +39,13 @@ maiden_states.GOTO_MAIDEN = {
         
         local reached = explore_states:navigate_to_waypoint(i)
         
-        local enemies = utils.find_enemies_in_radius(tracker.player_position, 3)
-        if #enemies > 0 or explore_states:near_traversal_actor() then
-            orbwalker.set_clear_toggle(true)
-        else
-            orbwalker.set_clear_toggle(false)
+        if explorerlite.is_in_gizmo_traversal_state then
+            local enemies = utils.find_enemies_in_radius(tracker.player_position, 3)
+            if #enemies > 0 then
+                orbwalker.set_clear_toggle(true)
+            else
+                orbwalker.set_clear_toggle(false)
+            end
         end
         
         if reached then
@@ -51,15 +53,6 @@ maiden_states.GOTO_MAIDEN = {
             sm:change_state("GAP_ALTARS")
             return
         end
-
-        --[[if tracker.check_time("traversal_delay_helltide", 4.5) then
-            tracker.clear_key("traversal_delay_helltide")
-            local f = explore_states:find_traversal_actor()
-            if f then
-                console.print("HELLTIDE: INTECRACT TRAVERSAL")
-                orbwalker.set_clear_toggle(false)
-            end
-        end]]
     end,
     exit = function(sm)
     end,

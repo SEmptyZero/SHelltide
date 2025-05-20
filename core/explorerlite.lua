@@ -114,6 +114,8 @@ local explorerlite = {
     enabled = false,
     is_task_running = false, --added to prevent boss dead pathing 
     traversal_interaction_radius = 3.0,
+    is_in_gizmo_traversal_state = false, -- Added for gizmo orbwalker toggle
+    toggle_anti_stuck = true,
 }
 local target_position = nil
 local grid_size = 2            -- Size of grid cells in meters
@@ -145,6 +147,10 @@ function explorerlite:clear_path_and_target()
     last_position = nil  -- Reset anche last_position per forzare un ricalcolo completo
     last_movement_direction = nil -- Reset last known movement direction
 
+    if self.is_in_gizmo_traversal_state then
+        orbwalker.set_clear_toggle(false)
+        self.is_in_gizmo_traversal_state = false
+    end
 end
 
 local function calculate_distance(point1, point2)
@@ -747,6 +753,10 @@ local function move_to_target()
             or significant_position_change
             or (time_since_last_call >= recalculate_interval and distance_since_last_calc >= min_movement_to_recalculate) then
             
+            if explorerlite.is_in_gizmo_traversal_state and (#current_path == 0 or path_index > #current_path) then
+                 orbwalker.set_clear_toggle(false)
+                 explorerlite.is_in_gizmo_traversal_state = false
+            end
 
             current_path = a_star(player_pos, target_position)
             path_index = 1
@@ -773,6 +783,31 @@ local function move_to_target()
         end
 
         if calculate_distance(player_pos, next_point) < grid_size * 1.2 then
+            local reached_this_point = next_point
+
+            local is_gizmo_entry_node = false
+            if cached_all_gizmos_details then
+                local reached_key = get_grid_key(reached_this_point) -- Get key for current point
+                for _, gizmo_detail in ipairs(cached_all_gizmos_details) do
+                    if gizmo_detail.walkable_entry then
+                        local gizmo_entry_key = get_grid_key(gizmo_detail.walkable_entry) -- Get key for gizmo entry
+                        if gizmo_entry_key == reached_key then
+                            is_gizmo_entry_node = true
+                            -- For debugging, you could add: print("ExplorerLite: Matched gizmo entry node: " .. (gizmo_detail.name or 'Unknown Gizmo') .. " at key: " .. reached_key)
+                            break
+                        end
+                    end
+                end
+            end
+
+            if is_gizmo_entry_node then
+                orbwalker.set_clear_toggle(true)
+                explorerlite.is_in_gizmo_traversal_state = true
+            elseif explorerlite.is_in_gizmo_traversal_state then
+                orbwalker.set_clear_toggle(false)
+                explorerlite.is_in_gizmo_traversal_state = false
+            end
+
             if path_index < #current_path then
                 local prev_node_for_direction = player_pos
                 if path_index > 1 and current_path[path_index-1] then
@@ -786,14 +821,17 @@ local function move_to_target()
                                                 y = (abs(dy) >= threshold and (dy > 0 and 1 or -1) or 0) }
                 end
 
-                update_recent_points(next_point)
+                update_recent_points(reached_this_point)
                 path_index = path_index + 1
             else
                 if calculate_distance(player_pos, target_position) < grid_size * 1.5 then
-
                     explorerlite:clear_path_and_target()
                 else
                     current_path = {}
+                    if explorerlite.is_in_gizmo_traversal_state then
+                         orbwalker.set_clear_toggle(false)
+                         explorerlite.is_in_gizmo_traversal_state = false
+                    end
                 end
             end
         end
@@ -830,98 +868,157 @@ end
 -----------------------------------------------------------------------------------------------------------------------------------------
 ------A_START_WAYPOINT FOR WAYPOINTS NAVIGATION
 -----------------------------------------------------------------------------------------------------------------------------------------
-function explorerlite:a_star_waypoint(waypoints, start_index, target_index, range_threshold)
-    local open_set = {[start_index] = true}
-    local came_from = {}
+function explorerlite:a_star_waypoint(start_index, target_index, range_threshold)
 
+    local waypoints = tracker.waypoints
+    if not waypoints or type(waypoints) ~= "table" or #waypoints == 0 then
+        console.print("11111111111111111111111111")
+        return nil
+    end
+
+    if type(start_index) ~= "number" or start_index < 1 then
+        console.print("22222222222222222222222222")
+        return nil
+    end
+
+    if type(target_index) ~= "number" or target_index < 1 or target_index > #waypoints then
+        console.print("33333333333333333333333333")
+        return nil
+    end
+
+    if type(range_threshold) ~= "number" or range_threshold <= 0 then
+        console.print("44444444444444444444444444")
+        return nil
+    end
+
+    local start_node = waypoints[start_index]
+    local target_node = waypoints[target_index]
+
+    if not start_node or type(start_node.dist_to) ~= "function" then
+        console.print("55555555555555555555555555")
+        return nil
+    end
+
+    if not target_node or type(target_node.dist_to) ~= "function" then
+        console.print("66666666666666666666666666")
+        return nil
+    end
+
+    local came_from = {}
     local g_score = {}
     local f_score = {}
 
-    for i, _ in ipairs(waypoints) do
+    for i = 1, #waypoints do
         g_score[i] = math.huge
         f_score[i] = math.huge
     end
 
     g_score[start_index] = 0
-    f_score[start_index] = waypoints[start_index]:dist_to(waypoints[target_index])
+    f_score[start_index] = start_node:dist_to(target_node)
 
-    local function lowest_f_score()
-        local lowest, lowest_score = nil, math.huge
-        for index, _ in pairs(open_set) do
-            if f_score[index] < lowest_score then
-                lowest_score = f_score[index]
-                lowest = index
+    local open_set = MinHeap.new(function(idx_a, idx_b)
+        return f_score[idx_a] < f_score[idx_b]
+    end)
+
+    open_set:push(start_index)
+    local open_set_lookup = {[start_index] = true}
+
+    local iterations = 0
+    local max_iterations = #waypoints * 10
+
+    while not open_set:empty() do
+        iterations = iterations + 1
+        if iterations > max_iterations then
+            return nil 
+        end
+
+        local current_idx = open_set:pop()
+        open_set_lookup[current_idx] = false
+
+        if current_idx == target_index then
+            local full_path = {}
+            local cur = target_index
+            while cur do
+                table.insert(full_path, 1, cur)
+                if cur == start_index and not came_from[cur] then
+                    break
+                end
+                cur = came_from[cur]
+                if cur and (#full_path > #waypoints) then
+                    return nil 
+                end
             end
-        end
-        return lowest
-    end
-
-    while next(open_set) do
-        local current = lowest_f_score()
-        if current == target_index then
-            break
+            if #full_path == 0 or full_path[1] ~= start_index then
+                return nil
+            end
+            return full_path
         end
 
-        open_set[current] = nil
+        local current_node = waypoints[current_idx]
+        if not current_node or type(current_node.dist_to) ~= "function" then
+            goto continue_loop
+        end
+        
+        for i = 1, #waypoints do
+            if i == current_idx then goto continue_neighbor_loop end
 
-        for i, wp in ipairs(waypoints) do
-            if i ~= current then
-                local distance = waypoints[current]:dist_to(wp)
-                if distance <= range_threshold then
-                    local tentative_g_score = g_score[current] + distance
-                    if tentative_g_score < g_score[i] then
-                        came_from[i] = current
-                        g_score[i] = tentative_g_score
-                        f_score[i] = tentative_g_score + wp:dist_to(waypoints[target_index])
-                        open_set[i] = true
+            local neighbor_node = waypoints[i]
+            if not neighbor_node or type(neighbor_node.dist_to) ~= "function" then
+                goto continue_neighbor_loop
+            end
+
+            local distance = current_node:dist_to(neighbor_node)
+
+            if distance <= range_threshold then
+                local tentative_g_score = g_score[current_idx] + distance
+                if tentative_g_score < g_score[i] then
+                    came_from[i] = current_idx
+                    g_score[i] = tentative_g_score
+                    f_score[i] = tentative_g_score + neighbor_node:dist_to(target_node)
+                    
+                    if not open_set_lookup[i] then
+                        open_set:push(i)
+                        open_set_lookup[i] = true
+                    else
+                        open_set:update(i) 
                     end
                 end
             end
+            ::continue_neighbor_loop::
         end
+        ::continue_loop::
     end
-
-    local full_path = {}
-    local cur = target_index
-    while cur do
-        table.insert(full_path, 1, cur)
-        cur = came_from[cur]
-    end
-
-    if #full_path == 0 or full_path[1] ~= start_index then
-        return nil
-    end
-
-    return full_path
+    return nil
 end
 
 
-local stuck_distance_threshold = 0.3
-local stuck_check_interval = 6
+local STUCK_TIME_THRESHOLD = 3.0
+local STUCK_DISTANCE_THRESHOLD = 0.3
 local step_size = 1
 
 local function is_player_stuck()
     local current_pos = tracker.player_position
     if not current_pos then return false end
-    local current_time = os.time()
+
+    local current_precise_time = get_time_since_inject and get_time_since_inject() or os.time()
 
     if not last_position or not last_position.x then
         last_position = vec3:new(current_pos:x(), current_pos:y(), current_pos:z())
-        last_move_time = current_time
+        last_move_time = current_precise_time
         return false
     end
 
-    if calculate_distance(current_pos, last_position) >= stuck_distance_threshold then
+    if calculate_distance(current_pos, last_position) >= STUCK_DISTANCE_THRESHOLD then
         last_position = vec3:new(current_pos:x(), current_pos:y(), current_pos:z())
-        last_move_time = current_time
+        last_move_time = current_precise_time
         return false
     end
 
-    if (current_time - last_move_time) >= stuck_check_interval then
-
+    if (current_precise_time - last_move_time) >= STUCK_TIME_THRESHOLD then
         return true -- Stuck
     end
 
-    return false -- Not stuck
+    return false -- Not stuck yet
 end
 
 local function find_safe_unstuck_point()
@@ -987,12 +1084,14 @@ end
 
 local function handle_stuck_player()
     if is_player_stuck() then
-
         local unstuck_point = find_safe_unstuck_point()
         if unstuck_point then
             if use_evade_to_unstuck(unstuck_point) then
-                last_position = tracker.player_position 
-                last_move_time = os.time()
+                local player_pos_after_evade = tracker.player_position
+                if player_pos_after_evade and player_pos_after_evade.x then
+                    last_position = vec3:new(player_pos_after_evade:x(), player_pos_after_evade:y(), player_pos_after_evade:z())
+                end
+                last_move_time = get_time_since_inject and get_time_since_inject() or os.time()
                 explorerlite:clear_path_and_target()
             else
                 explorerlite:set_custom_target(unstuck_point)
@@ -1005,8 +1104,6 @@ local function handle_stuck_player()
 end
 
 function explorerlite:move_to_target()
-    handle_stuck_player()
-
     if settings.aggresive_movement then
         move_to_target_aggresive()
     else
@@ -1023,6 +1120,10 @@ on_update(function()
          return -- Don't run explorer logic if a task is running
     end
 
+    if explorerlite.toggle_anti_stuck then
+        handle_stuck_player()
+    end
+
     local world = world.get_current_world()
     if world then
         local world_name = world:get_name()
@@ -1030,7 +1131,6 @@ on_update(function()
             return
         end
     end
-
 end)
 
 on_render(function()

@@ -1,6 +1,7 @@
 local utils     = require "core.utils"
 local tracker   = require "core.tracker"
 local enums     = require "data.enums"
+local explorerlite = require "core.explorerlite"
 
 local current_city_index = 0
 
@@ -22,6 +23,9 @@ function is_loading_or_limbo()
 end
 
 search_helltide_states.SEARCHING_HELLTIDE = {
+    enter = function(sm)
+        explorerlite.toggle_anti_stuck = false
+    end,
     execute = function(sm)
         if is_time_between_55_and_00() and not utils.is_in_helltide() then
             return
@@ -36,6 +40,9 @@ search_helltide_states.SEARCHING_HELLTIDE = {
             sm:change_state("INIT")
         end
     end,
+    exit = function(sm)
+        explorerlite.toggle_anti_stuck = true
+    end,
 }
 
 search_helltide_states.TELEPORTING = {
@@ -44,10 +51,17 @@ search_helltide_states.TELEPORTING = {
         tracker.wait_in_town = nil
         teleport_to_waypoint(enums.helltide_tps[current_city_index].id)
         sm:change_state("WAITING_FOR_TELEPORT")
+        explorerlite.toggle_anti_stuck = false
+    end,
+    exit = function(sm)
+        explorerlite.toggle_anti_stuck = true
     end,
 }
 
 search_helltide_states.WAITING_FOR_TELEPORT = {
+    enter = function(sm)
+        explorerlite.toggle_anti_stuck = false
+    end,
     execute = function(sm)
         if is_loading_or_limbo() then
             tracker.clear_key("wait_in_town")
@@ -60,6 +74,9 @@ search_helltide_states.WAITING_FOR_TELEPORT = {
             sm:change_state("TELEPORTING")
         end
 
+    end,
+    exit = function(sm)
+        explorerlite.toggle_anti_stuck = true
     end,
 }
 

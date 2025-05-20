@@ -6,6 +6,8 @@ local battles_states = {}
 
 local DIST_FIGHT = 15
 local DELAY_FIGHT = 1
+local DIST_ENGAGE_OR_REPOSITION = 10
+local FIGHT_STATE_TIMEOUT = 30
 
 local function is_valid_target(enemy)
     return enemy
@@ -39,7 +41,7 @@ battles_states.FIGHT_ELITE_CHAMPION = {
     
     execute = function(sm)
         
-        if tracker.check_time("limit_state_fight", 30) then
+        if tracker.check_time("limit_state_fight", FIGHT_STATE_TIMEOUT) then
             console.print("LIMIT RACHED EXIT STATE")
             sm:change_state("WAIT_AFTER_FIGHT")
             return
@@ -52,7 +54,7 @@ battles_states.FIGHT_ELITE_CHAMPION = {
         end
         
         local target_pos = target:get_position()
-        if utils.distance_to(target) > 10 then
+        if utils.distance_to(target) > DIST_ENGAGE_OR_REPOSITION then
             explorerlite:set_custom_target(target_pos)
             explorerlite:move_to_target()
         else
