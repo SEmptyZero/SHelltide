@@ -124,12 +124,10 @@ chests_states.MOVING_TO_SILENT_CHEST = {
             explorerlite:set_custom_target(current_chest_saved_pos)
             explorerlite:move_to_target()
         else
-            local silent_chest = utils.find_target_by_position(current_chest_saved_pos, 2)
-            if silent_chest and silent_chest:get_skin_name() == "Hell_Prop_Chest_Rare_Locked_GamblingCurrency" then
-                if silent_chest:is_interactable() and utils.distance_to_ignore_z(silent_chest) < 2 then
-                    tracker.current_chest = silent_chest
-                    sm:change_state("INTERACT_CHEST")
-                end
+            local silent_chest = utils.find_gambling_chest_by_position(current_chest_saved_pos)
+            if silent_chest and silent_chest:is_interactable() and utils.distance_to_ignore_z(silent_chest) < 2 then
+                tracker.current_chest = silent_chest
+                sm:change_state("INTERACT_CHEST")
             end
         end
     end,

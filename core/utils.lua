@@ -153,6 +153,21 @@ function utils.find_helltide_chest_by_position(targetPos)
     return nil
 end
 
+function utils.find_gambling_chest_by_position(targetPos)
+    local tol = 2
+    local all_targets = tracker.all_actors
+    for _, obj in ipairs(all_targets) do
+        local pos = obj:get_position()
+        if pos and targetPos and pos:dist_to_ignore_z(targetPos) < tol then
+            local skin_name = obj:get_skin_name()
+            if skin_name == "Hell_Prop_Chest_Rare_Locked_GamblingCurrency" then
+                return obj
+            end
+        end
+    end
+    return nil
+end
+
 function utils.is_chest_already_tracked(chest, tracker, tolerance)
     tolerance = tolerance or 1
     if not chest then

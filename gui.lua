@@ -1,5 +1,5 @@
 local gui = {}
-local version = "v1.2.3b"
+local version = "v1.2.4b"
 local plugin_label = "s_helltide"
 local author = "EmptyZero"
 
