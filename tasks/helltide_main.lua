@@ -10,6 +10,7 @@ local tracker                   = require "core.tracker"
 local explorerlite              = require "core.explorerlite"
 local settings                  = require "core.settings"
 local gui                       = require "gui"
+local obols_states               = require "states.obols_states"
 
 local helltide_states = {}
 for k, v in pairs(explore_states) do
@@ -30,6 +31,9 @@ end
 for k, v in pairs(maiden_states) do
     helltide_states[k] = v
 end
+for k, v in pairs(obols_states) do
+    helltide_states[k] = v
+end
 
 local helltide_task = {
     name = "Explore Helltide",
@@ -43,6 +47,7 @@ local helltide_task = {
         if not self.sm then
             self.sm = state_machine.new("SEARCHING_HELLTIDE", helltide_states)
             --self.sm = state_machine.new("INIT", helltide_states)
+            --self.sm = state_machine.new("TEST_STATE", helltide_states)
             tracker.chests_found = {}
             tracker.opened_chests_count = 0
             tracker.clear_key("helltide_delay_trigger_maiden")
@@ -52,9 +57,8 @@ local helltide_task = {
         if tracker.local_player and tracker.local_player:is_dead() then
             if self.sm and self.sm:get_current_state() ~= "RESURRECT_AND_RETURN" then 
                 console.print("HELLTIDE: Player died.")
-                tracker.previous_state_before_death = self.sm:get_current_state()
                 tracker.death_recovery_waypoint_index = tracker.waypoint_index
-                console.print("HELLTIDE: Stored death recovery waypoint index: " .. tracker.death_recovery_waypoint_index .. " from state: " .. tracker.previous_state_before_death)
+                console.print("HELLTIDE: Stored death recovery waypoint index: " .. tracker.death_recovery_waypoint_index)
                 
                 self.sm:change_state("RESURRECT_AND_RETURN")
                 return

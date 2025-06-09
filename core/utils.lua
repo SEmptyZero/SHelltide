@@ -2,6 +2,7 @@ local utils    = {}
 local enums = require "data.enums"
 local tracker = require "core.tracker"
 local settings = require "core.settings"
+local gui = require "gui"
 
 function utils.distance_to(target)
     local player_pos = tracker.player_position
@@ -67,7 +68,6 @@ function utils.get_consumable_info(item)
     return info
 end
 
-
 function utils.is_in_helltide()
     local buffs = tracker.local_player:get_buffs()
     if not buffs then return false end
@@ -80,22 +80,9 @@ function utils.is_in_helltide()
     return false
 end
 
-function utils.have_whispering_key()
-    local inventory = tracker.local_player:get_consumable_items()
-    for _, item in pairs(inventory) do
-        local item_info = utils.get_consumable_info(item)
-        if item_info then
-            if item_info.name == "GamblingCurrency_Key" then
-                return true
-            end
-        end
-    end
-
-    return false
-end
-
 function utils.get_random_point_circle(targetPos, ray, max_z_diff)
     local player = tracker.player_position
+    local explorerlite = require "core.explorerlite"
     max_z_diff = max_z_diff or 0.5
     
     local angle = math.random() * 2 * math.pi
@@ -108,11 +95,13 @@ function utils.get_random_point_circle(targetPos, ray, max_z_diff)
     
     newPos = utility.set_height_of_valid_position(newPos)
     
-    if math.abs(newPos:z() - player:z()) > max_z_diff then
-        return targetPos
-    else
-        return newPos
+    if math.abs(newPos:z() - player:z()) <= max_z_diff then
+        if utility.is_point_walkeable(newPos) then
+            return newPos
+        end
     end
+    
+    return nil
 end
 
 function utils.find_closest_target(name)
@@ -149,13 +138,16 @@ function utils.find_target_by_position(targetPos, tol)
     return nil
 end
 
-function utils.find_target_by_position_and_name(targetPos, name, tol)
-    tol = tol or 1
+function utils.find_helltide_chest_by_position(targetPos)
+    tol = 2
     local all_targets = tracker.all_actors
     for _, obj in ipairs(all_targets) do
         local pos = obj:get_position()
-        if pos and targetPos and pos:dist_to(targetPos) < tol and obj:get_skin_name() == name then
-            return obj
+        if pos and targetPos and pos:dist_to_ignore_z(targetPos) < tol then
+            local skin_name = obj:get_skin_name()
+            if enums.helltide_chests_info[skin_name] then
+                return obj
+            end
         end
     end
     return nil
@@ -260,17 +252,23 @@ function utils.calculate_distance(pos1, pos2)
     return 0
 end
 
-function utils.clamp(val, lower, upper)
-    if lower > upper then lower, upper = upper, lower end
-    return math.max(lower, math.min(upper, val))
-end
-
 function utils.should_activate_alfred()
     if settings.salvage and PLUGIN_alfred_the_butler then
         local status = PLUGIN_alfred_the_butler.get_status()
         if status.enabled and #tracker.local_player:get_inventory_items() >= 25 and (status.sell_count > 0 or status.salvage_count > 0) then
             return true
         end
+    end
+    return false
+end
+
+function utils.should_activate_obols()
+    local olbs = tracker.local_player:get_obols()
+    local gamble_enabled = gui.elements.gamble_toggle:get()
+    local obols_threshold = gui.elements.obols_threshold_slider:get()
+    
+    if gamble_enabled and olbs >= obols_threshold then
+        return true
     end
     return false
 end
@@ -301,24 +299,23 @@ function utils.is_loading_or_limbo()
     return world_name:find("Limbo") ~= nil or world_name:find("Loading") ~= nil
 end
 
-function utils.is_safe_descent(p1, p2_candidate, max_safe_direct_drop, is_traversable_slope_func, slope_max_total_height_diff)
-    local height_difference = p2_candidate:z() - p1:z()
-
-    if height_difference >= -0.1 then 
-        return true
+function utils.is_valid_target(enemy)
+    if not enemy then
+        return false
     end
-
-    if math.abs(height_difference) <= max_safe_direct_drop then
-        return true
+    
+    local base_conditions = enemy:is_enemy() and not enemy:is_untargetable() and not enemy:is_dead() and not enemy:is_immune()
+    
+    if not base_conditions then
+        return false
     end
-
-    if is_traversable_slope_func then
-        if is_traversable_slope_func(p1, p2_candidate, slope_max_total_height_diff) then
-            return true
-        end
-    end
-
-    return false
+    
+    local is_special_enemy = enemy:is_elite() or enemy:is_champion() or enemy:is_boss()
+    
+    local enemy_name = enemy:get_skin_name() or ""
+    local is_goblin = enemy_name:match("[Gg]oblin")
+    
+    return is_special_enemy or is_goblin
 end
 
 return utils

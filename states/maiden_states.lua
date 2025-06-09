@@ -39,7 +39,7 @@ maiden_states.GOTO_MAIDEN = {
         
         local reached = explore_states:navigate_to_waypoint(i)
         
-        if explorerlite.is_in_gizmo_traversal_state then
+        if not explorerlite.is_in_traversal_state then
             local enemies = utils.find_enemies_in_radius(tracker.player_position, 3)
             if #enemies > 0 then
                 orbwalker.set_clear_toggle(true)
@@ -89,15 +89,13 @@ maiden_states.CLEANING_MAIDEN_AREA = {
             else
                 if tracker.check_time("random_circle_delay_helltide", 1.3) and pos_first_enemy then
                     local new_pos = utils.get_random_point_circle(pos_first_enemy, 9, 1.2)
-                    explorerlite:set_custom_target(new_pos)
-                    if explorerlite:is_custom_target_valid() then
+                    if new_pos and not explorerlite:is_custom_target_valid() then
+                        explorerlite:set_custom_target(new_pos)
                         tracker.clear_key("random_circle_delay_helltide")
                     end
                 end
                 
-                if explorerlite:is_custom_target_valid() then
-                    explorerlite:move_to_target()
-                end
+                explorerlite:move_to_target()
             end
         else
             if utils.distance_to(tracker.current_maiden_position) > 2 then
@@ -191,136 +189,156 @@ maiden_states.INTERACT_ALTAR = {
     end,
 }
 
+local boss_approach_timer = 0
+local boss_approach_duration = 2
+local boss_approach_cooldown = 8
+local last_boss_approach = 0
+local circle_angle = 0
+local circle_direction = 1
+
 function update_maiden_enemies()
     local maiden_pos = tracker.current_maiden_position
-    local radius = 16
+    local radius = 20
     local nearby_enemies = utils.find_targets_in_radius(maiden_pos, radius)
 
     tracker.maiden_enemies = {}
+    tracker.maiden_boss = nil
 
     for _, enemy in ipairs(nearby_enemies) do
         if not enemy:is_dead() 
            and (enemy:is_enemy() or enemy:is_elite() or enemy:is_champion()) 
            and not enemy:is_interactable() 
            and not enemy:is_untargetable() then
-            table.insert(tracker.maiden_enemies, enemy)
+            
+            if enemy:get_skin_name() == "S04_demon_succubus_miniboss" then
+                tracker.maiden_boss = enemy
+            else
+                table.insert(tracker.maiden_enemies, enemy)
+            end
         end
     end
 end
 
-local strafe_direction = 1
-local last_direction_change = 0
-local direction_change_interval = math.random(3, 7)
-
 function kite_enemies()
     update_maiden_enemies()
-
-    local safe_min_distance = 6
-    local safe_max_distance = 9
-    local max_radius = 15
-
-    local enemy_count = #tracker.maiden_enemies
-    if enemy_count == 0 then
-        local random_angle = math.random() * 2 * math.pi
-        local random_distance = math.random() * 20
-        local random_pos = vec3:new(
-            tracker.current_maiden_position:x() + random_distance * math.cos(random_angle),
-            tracker.current_maiden_position:y() + random_distance * math.sin(random_angle),
-            tracker.current_maiden_position:z()
+    
+    local current_time = get_time_since_inject()
+    local player_pos = tracker.player_position
+    local maiden_pos = tracker.current_maiden_position
+    local max_radius = 18
+    
+    local has_regular_enemies = #tracker.maiden_enemies > 0
+    local has_boss = tracker.maiden_boss ~= nil
+    
+    if has_regular_enemies then
+        local center_x, center_y, center_z = 0, 0, 0
+        for _, enemy in ipairs(tracker.maiden_enemies) do
+            local pos = enemy:get_position()
+            center_x = center_x + pos:x()
+            center_y = center_y + pos:y()
+            center_z = center_z + pos:z()
+        end
+        
+        center_x = center_x / #tracker.maiden_enemies
+        center_y = center_y / #tracker.maiden_enemies
+        center_z = center_z / #tracker.maiden_enemies
+        
+        local enemies_center = vec3:new(center_x, center_y, center_z)
+        
+        if has_boss and current_time - last_boss_approach > boss_approach_cooldown then
+            if boss_approach_timer == 0 then
+                boss_approach_timer = current_time
+                console.print("Avvicinandosi al boss per " .. boss_approach_duration .. " secondi")
+            end
+            
+            if current_time - boss_approach_timer < boss_approach_duration then
+                local boss_pos = tracker.maiden_boss:get_position()
+                if utils.distance_to(boss_pos) > 3 then
+                    explorerlite:set_custom_target(boss_pos)
+                    explorerlite:move_to_target()
+                end
+                return
+            else
+                boss_approach_timer = 0
+                last_boss_approach = current_time
+            end
+        end
+        
+        circle_angle = circle_angle + (circle_direction * 0.8)
+        if circle_angle > 360 then
+            circle_angle = 0
+        elseif circle_angle < 0 then
+            circle_angle = 360
+        end
+        
+        if math.random() < 0.01 then
+            circle_direction = circle_direction * -1
+        end
+        
+        local circle_radius = 8
+        local angle_rad = math.rad(circle_angle)
+        local target_pos = vec3:new(
+            enemies_center:x() + circle_radius * math.cos(angle_rad),
+            enemies_center:y() + circle_radius * math.sin(angle_rad),
+            enemies_center:z()
         )
-
+        
+        target_pos = utility.set_height_of_valid_position(target_pos)
+        
+        if utility.is_point_walkeable(target_pos) and utils.calculate_distance(target_pos, maiden_pos) <= max_radius then
+            explorerlite:set_custom_target(target_pos)
+            explorerlite:move_to_target()
+        end
+        
+    elseif has_boss then
+        if current_time - last_boss_approach > boss_approach_cooldown then
+            if boss_approach_timer == 0 then
+                boss_approach_timer = current_time
+            end
+            
+            if current_time - boss_approach_timer < boss_approach_duration then
+                local boss_pos = tracker.maiden_boss:get_position()
+                if utils.distance_to(boss_pos) > 3 then
+                    explorerlite:set_custom_target(boss_pos)
+                    explorerlite:move_to_target()
+                end
+                return
+            else
+                boss_approach_timer = 0
+                last_boss_approach = current_time
+            end
+        end
+        
+        local random_angle = math.random() * 2 * math.pi
+        local random_distance = math.random(5, 12)
+        local random_pos = vec3:new(
+            maiden_pos:x() + random_distance * math.cos(random_angle),
+            maiden_pos:y() + random_distance * math.sin(random_angle),
+            maiden_pos:z()
+        )
+        
         random_pos = utility.set_height_of_valid_position(random_pos)
-
-        if utility.is_point_walkeable(random_pos) then
+        
+        if utility.is_point_walkeable(random_pos) and utils.calculate_distance(random_pos, maiden_pos) <= max_radius then
             explorerlite:set_custom_target(random_pos)
             explorerlite:move_to_target()
         end
-
-        return
-    end
-
-    local player_pos = tracker.player_position
-
-    local closest_enemy, closest_dist = nil, math.huge
-    for _, enemy in ipairs(tracker.maiden_enemies) do
-        local enemy_pos = enemy:get_position()
-        local dist = utils.distance_to(enemy_pos)
-        if dist < closest_dist then
-            closest_dist = dist
-            closest_enemy = enemy
-        end
-    end
-
-    local move_dir = nil
-
-    if closest_dist < safe_min_distance then
-        local enemy_pos = closest_enemy:get_position()
-        move_dir = vec3:new(
-            player_pos:x() - enemy_pos:x(),
-            player_pos:y() - enemy_pos:y(),
-            player_pos:z() - enemy_pos:z()
-        ):normalize()
-
-    elseif closest_dist > safe_max_distance then
-        local enemy_pos = closest_enemy:get_position()
-        move_dir = vec3:new(
-            enemy_pos:x() - player_pos:x(),
-            enemy_pos:y() - player_pos:y(),
-            enemy_pos:z() - player_pos:z()
-        ):normalize()
-
+        
     else
-        local current_time = get_time_since_inject()
-        if current_time - last_direction_change > direction_change_interval then
-            strafe_direction = strafe_direction * -1
-            last_direction_change = current_time
-            direction_change_interval = math.random(3, 7)
+        local random_angle = math.random() * 2 * math.pi
+        local random_distance = math.random(8, 15)
+        local random_pos = vec3:new(
+            maiden_pos:x() + random_distance * math.cos(random_angle),
+            maiden_pos:y() + random_distance * math.sin(random_angle),
+            maiden_pos:z()
+        )
+        
+        random_pos = utility.set_height_of_valid_position(random_pos)
+        
+        if utility.is_point_walkeable(random_pos) and utils.calculate_distance(random_pos, maiden_pos) <= max_radius then
+            explorerlite:set_custom_target(random_pos)
+            explorerlite:move_to_target()
         end
-
-        local enemy_pos = closest_enemy:get_position()
-        local angle_to_enemy = math.atan2(player_pos:y() - enemy_pos:y(), player_pos:x() - enemy_pos:x())
-        local rotation_speed = 20 * math.pi / 180 * strafe_direction
-        local rotated_angle = angle_to_enemy + current_time * rotation_speed
-
-        move_dir = vec3:new(math.cos(rotated_angle), math.sin(rotated_angle), 0):normalize()
-    end
-
-    local target_distance = math.min(math.max(closest_dist, safe_min_distance), safe_max_distance)
-
-    local function find_walkable_position(base_dir, distance)
-        local angle_offsets = {0, 15, -15, 30, -30, 45, -45, 60, -60, 90, -90, 120, -120, 150, -150, 180}
-        local step = 0.5
-
-        for _, angle_deg in ipairs(angle_offsets) do
-            local angle_rad = math.rad(angle_deg)
-            local rotated_dir = vec3:new(
-                base_dir:x() * math.cos(angle_rad) - base_dir:y() * math.sin(angle_rad),
-                base_dir:x() * math.sin(angle_rad) + base_dir:y() * math.cos(angle_rad),
-                base_dir:z()
-            ):normalize()
-
-            for adjusted_distance = distance, safe_min_distance, -step do
-                local candidate = vec3:new(
-                    player_pos:x() + rotated_dir:x() * adjusted_distance,
-                    player_pos:y() + rotated_dir:y() * adjusted_distance,
-                    player_pos:z() + rotated_dir:z() * adjusted_distance
-                )
-                candidate = utility.set_height_of_valid_position(candidate)
-
-                if utility.is_point_walkeable(candidate) and utils.calculate_distance(candidate, tracker.current_maiden_position) <= max_radius then
-                    return candidate
-                end
-            end
-        end
-
-        return nil
-    end
-
-    local valid_pos = find_walkable_position(move_dir, target_distance)
-
-    if valid_pos then
-        explorerlite:set_custom_target(valid_pos)
-        explorerlite:move_to_target()
     end
 end
 
@@ -390,7 +408,7 @@ maiden_states.WAIT_AFTER_MAIDEN = {
                 tracker.clear_key("helltide_switch_to_farm_chests")
                 tracker.check_time("helltide_switch_to_farm_maiden", gui.elements.maiden_slider_helltide_chests_time:get() * 60)
                 
-                if gui.elements.maiden_return_to_origin_toggle:get() and tracker.last_position_waypoint_index ~= nil then --tracker.current_chest:get_skin_name() == "Hell_Prop_Chest_Rare_Locked_GamblingCurrency" then
+                if gui.elements.maiden_return_to_origin_toggle:get() and tracker.last_position_waypoint_index ~= nil then
                     tracker.return_point = tracker.last_position_waypoint_index
                     sm:change_state("BACKTRACKING_TO_WAYPOINT")
                     return

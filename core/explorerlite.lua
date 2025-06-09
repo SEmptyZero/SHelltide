@@ -1,5 +1,7 @@
 local tracker = require "core.tracker"
 local gui = require "gui"
+local traversal = require "core.traversal"
+local a_star_waypoints = require "core.a_star_waypoints"
 
 local MinHeap = {}
 MinHeap.__index = MinHeap
@@ -9,16 +11,11 @@ local abs = math.abs
 local sqrt = math.sqrt
 local max = math.max
 local min = math.min
-local time = os.time
 local table_insert = table.insert
 local random = math.random
 
 local setHeight = utility.set_height_of_valid_position
 local isWalkable = utility.is_point_walkeable
-
-local cached_all_gizmos_details = nil
-local last_gizmo_cache_update_time = 0
-local gizmo_cache_duration = 3
 
 function MinHeap.new(compare)
     return setmetatable({
@@ -36,10 +33,6 @@ function MinHeap:push(value)
     self.heap[#self.heap+1] = value
     self.index_map[value] = #self.heap
     self:siftUp(#self.heap)
-end
-
-function MinHeap:peek()
-    return self.heap[1]
 end
 
 function MinHeap:empty()
@@ -107,55 +100,47 @@ function vec3.__add(v1, v2)
     return vec3:new(v1:x() + v2:x(), v1:y() + v2:y(), v1:z() + v2:z())
 end
 
-
 local utils = require "core.utils"
 local settings = require "core.settings"
 local explorerlite = {
     enabled = false,
-    is_task_running = false, --added to prevent boss dead pathing 
-    traversal_interaction_radius = 3.0,
-    is_in_gizmo_traversal_state = false, -- Added for gizmo orbwalker toggle
+    is_task_running = false,
+    is_in_traversal_state = false,
     toggle_anti_stuck = true,
 }
 local target_position = nil
-local grid_size = 2            -- Size of grid cells in meters
-local max_target_distance = 180 -- Maximum distance for a new target
-local target_distance_states = {180, 120, 40, 20, 5}
-local target_distance_index = 1
+local grid_size = 1
 local last_position = nil
 local last_move_time = 0
 
 local last_a_star_call = 0.0
 local last_call_time = 0.0
 
--- A* pathfinding variables
 local current_path = {}
 local path_index = 1
 
--- Neue Variable für die letzte Bewegungsrichtung
 local last_movement_direction = nil
 
 local recent_points_penalty = {}
 local min_movement_to_recalculate = 1.0
 local recalculate_interval = 1.5
 
---ai fix for kill monsters path
 function explorerlite:clear_path_and_target()
     target_position = nil
     current_path = {}
     path_index = 1
-    last_position = nil  -- Reset anche last_position per forzare un ricalcolo completo
-    last_movement_direction = nil -- Reset last known movement direction
-
-    if self.is_in_gizmo_traversal_state then
+    last_position = nil
+    last_movement_direction = nil
+    
+    if self.is_in_traversal_state then
         orbwalker.set_clear_toggle(false)
-        self.is_in_gizmo_traversal_state = false
+        self.is_in_traversal_state = false
     end
 end
 
 local function calculate_distance(point1, point2)
     if not point1 or not point2 then return math.huge end
-    if not point1.x or not point2.x then -- Check if they are objects with get_position
+    if not point1.x or not point2.x then
         local p1_actual = point1.get_position and point1:get_position() or point1
         local p2_actual = point2.get_position and point2:get_position() or point2
         if not p1_actual or not p2_actual or not p1_actual.x or not p2_actual.x then return math.huge end
@@ -167,7 +152,7 @@ end
 local point_cache = setmetatable({}, { __mode = "k" })
 
 local function get_grid_key(point)
-    if not point or not point.x then return "" end -- Safe guard
+    if not point or not point.x then return "" end
     local cached_key = point_cache[point]
     if cached_key then
         return cached_key
@@ -184,20 +169,38 @@ local function get_grid_key(point)
 end
 
 local function update_recent_points(point)
-    recent_points_penalty[point] = os.time() + 12
+    recent_points_penalty[point] = get_time_since_inject() + 12
 end
 
+local function cleanup_expired_recent_points()
+    local current_time = get_time_since_inject()
+    for point, expire_time in pairs(recent_points_penalty) do
+        if expire_time <= current_time then
+            recent_points_penalty[point] = nil
+        end
+    end
+end
+
+local last_cleanup_time = 0
+local cleanup_interval = 30 -- seconds
+
 local function heuristic(a, b, wall_cache)
-    local dx = math.abs(a:x() - b:x())
-    local dy = math.abs(a:y() - b:y())
-    local base_cost = grid_size * (dx + dy)
+    local current_time = get_time_since_inject()
+    if current_time - last_cleanup_time > cleanup_interval then
+        cleanup_expired_recent_points()
+        last_cleanup_time = current_time
+    end
+
+    local dx = abs(a:x() - b:x())
+    local dy = abs(a:y() - b:y())
+    local base_cost = sqrt(dx*dx + dy*dy)
 
     local wall_penalty = 0
     if is_near_wall(a, wall_cache) then
         wall_penalty = 30
     end
 
-    local recent_penalty = recent_points_penalty[a] and recent_points_penalty[a] > os.time() and 20 or 0
+    local recent_penalty = recent_points_penalty[a] and recent_points_penalty[a] > get_time_since_inject() and 20 or 0
 
     return base_cost + wall_penalty + recent_penalty
 end
@@ -253,157 +256,6 @@ local max_downhill_difference = 1.4
 
 local max_safe_direct_drop = 1.0
 
--- NEW HELPER FUNCTIONS START
-local function determine_gizmo_type(gizmo_actor_name)
-    if not gizmo_actor_name or type(gizmo_actor_name) ~= "string" then
-        return "GenericTraversal" -- Default if name is invalid
-    end
-
-    if gizmo_actor_name:match("[Tt]raversal_[Gg]izmo") and gizmo_actor_name:match("Jump") then
-        return "Jump"
-    elseif gizmo_actor_name:match("[Tt]raversal_[Gg]izmo") and 
-           (gizmo_actor_name:match("[Uu]p") or gizmo_actor_name:match("[Dd]own")) then
-        return "Stair"
-    else
-        return "GenericTraversal" -- Fallback
-    end
-end
-
-local function find_paired_gizmo(source_gizmo_info, all_gizmos_list)
-    local source_name = source_gizmo_info.name
-    local source_pos = source_gizmo_info.position
-    local source_type = source_gizmo_info.type
-    
-    if source_type == "Jump" then
-        local max_jump_pair_dist = 15.0
-        for _, target_gizmo_info in ipairs(all_gizmos_list) do
-            if target_gizmo_info.actor ~= source_gizmo_info.actor and target_gizmo_info.type == "Jump" then
-                local distance = source_pos:dist_to(target_gizmo_info.position)
-                if distance <= max_jump_pair_dist then
-                    return target_gizmo_info
-                end
-            end
-        end
-    elseif source_type == "Stair" then
-        local is_up = source_name:match("[Uu]p") ~= nil
-        local max_stair_pair_dist = 18.0
-        local min_height_diff = 1.2
-        
-        local best_match = nil
-        local best_match_distance = max_stair_pair_dist
-        local best_match_height_diff = 0
-        
-        for _, target_gizmo_info in ipairs(all_gizmos_list) do
-            if target_gizmo_info.actor ~= source_gizmo_info.actor and target_gizmo_info.type == "Stair" then
-                local target_is_up = target_gizmo_info.name:match("[Uu]p") ~= nil
-                
-                if is_up ~= target_is_up then
-                    local distance = source_pos:dist_to(target_gizmo_info.position)
-                    
-                    local height_diff = math.abs(source_pos:z() - target_gizmo_info.position:z())
-                    
-                    local source_base = source_name:gsub("_[Uu]p$", ""):gsub("_[Dd]own$", "")
-                    local target_base = target_gizmo_info.name:gsub("_[Uu]p$", ""):gsub("_[Dd]own$", "")
-                    
-                    if distance <= max_stair_pair_dist and height_diff >= min_height_diff then
-                        if source_base == target_base then
-                            return target_gizmo_info
-                        end
-                        
-                        if distance < best_match_distance or (distance == best_match_distance and height_diff > best_match_height_diff) then
-                            best_match = target_gizmo_info
-                            best_match_distance = distance
-                            best_match_height_diff = height_diff
-                        end
-                    end
-                end
-            end
-        end
-        
-        if best_match then
-            return best_match
-        end
-    end
-    
-    return nil
-end
-
-local function get_walkable_grid_entry_near_gizmo(gizmo_actual_position)
-    local corrected_gizmo_pos = setHeight(vec3:new(gizmo_actual_position:x(), gizmo_actual_position:y(), gizmo_actual_position:z()))
-    if isWalkable(corrected_gizmo_pos) then
-        return corrected_gizmo_pos
-    end
-    
-    local min_dist_sq_to_gizmo = math.huge
-    local closest_walkable_point = nil
-    local gizmo_x, gizmo_y, gizmo_z = gizmo_actual_position:x(), gizmo_actual_position:y(), gizmo_actual_position:z()
-    
-    local grid_x = math.floor(gizmo_x / grid_size) * grid_size
-    local grid_y = math.floor(gizmo_y / grid_size) * grid_size
-    
-    for dx = -1, 1 do
-        for dy = -1, 1 do
-            local grid_point = vec3:new(
-                grid_x + dx * grid_size,
-                grid_y + dy * grid_size,
-                gizmo_z
-            )
-            
-            local corrected_grid_point = setHeight(grid_point)
-            
-            if isWalkable(corrected_grid_point) then
-                local dist_sq = (corrected_grid_point:x() - gizmo_x)^2 + 
-                                (corrected_grid_point:y() - gizmo_y)^2 + 
-                                (corrected_grid_point:z() - gizmo_z)^2
-                
-                if dist_sq < min_dist_sq_to_gizmo then
-                    min_dist_sq_to_gizmo = dist_sq
-                    closest_walkable_point = corrected_grid_point
-                end
-            end
-        end
-    end
-    
-    if closest_walkable_point then
-        return closest_walkable_point
-    end
-    
-    for radius = 1, 5, 0.5 do
-        for angle = 0, 315, 45 do  -- Check 8 directions
-            local rad = math.rad(angle)
-            local test_pos = vec3:new(
-                gizmo_x + math.cos(rad) * radius,
-                gizmo_y + math.sin(rad) * radius,
-                gizmo_z
-            )
-            
-            local corrected_pos = setHeight(test_pos)
-            
-            if isWalkable(corrected_pos) then
-                -- Calculate squared distance 
-                local dist_sq = (corrected_pos:x() - gizmo_x)^2 + 
-                                (corrected_pos:y() - gizmo_y)^2 + 
-                                (corrected_pos:z() - gizmo_z)^2
-                
-                if dist_sq < min_dist_sq_to_gizmo then
-                    min_dist_sq_to_gizmo = dist_sq
-                    closest_walkable_point = corrected_pos
-                    
-                    if has_line_of_sight(closest_walkable_point, gizmo_actual_position) then
-                        return closest_walkable_point
-                    end
-                end
-            end
-        end
-    end
-    
-    if closest_walkable_point then
-        return closest_walkable_point
-    end
-    
-    return nil
-end
-
 local function has_line_of_sight(point_a, point_b)
     local distance = calculate_distance(point_a, point_b)
     if distance > 50 then return false end
@@ -426,16 +278,12 @@ local function has_line_of_sight(point_a, point_b)
     return true
 end
 
-local function get_neighbors(point, all_gizmos_details_list)
+local function get_neighbors(point)
     local neighbors = {}
-    local existing_neighbor_keys = {} -- For tracking unique neighbor keys
 
     local px, py, pz = point:x(), point:y(), point:z()
     local current_point_key = get_grid_key(point)
-    -- A point cannot be its own neighbor in this context, 
-    -- so implicitly, current_point_key won't be added to existing_neighbor_keys for itself.
 
-    -- Standard Neighbors
     for i = 1, #neighbor_directions do
         local dir = neighbor_directions[i]
         if not last_movement_direction 
@@ -449,144 +297,52 @@ local function get_neighbors(point, all_gizmos_details_list)
             local final_neighbor_pos = setHeight(neighbor_candidate_pos)
             local final_neighbor_pos_key = get_grid_key(final_neighbor_pos)
 
-            if final_neighbor_pos_key ~= current_point_key and not existing_neighbor_keys[final_neighbor_pos_key] then
-                local height_difference = final_neighbor_pos:z() - pz
-                
+            if final_neighbor_pos_key ~= current_point_key then
                 if isWalkable(final_neighbor_pos) then
-                    local is_valid_standard_neighbor = false
-                    if height_difference > 0 then -- UPHILL
-                        if math.abs(height_difference) <= max_uphill_difference or is_traversable_slope(point, final_neighbor_pos, max_uphill_difference) then
-                            is_valid_standard_neighbor = true
-                        end
-                    else -- DOWNHILL or FLAT
-                        if utils.is_safe_descent(point, final_neighbor_pos, max_safe_direct_drop, is_traversable_slope, max_downhill_difference) then
-                            is_valid_standard_neighbor = true
-                        end
-                    end
-
-                    if is_valid_standard_neighbor and has_line_of_sight(point, final_neighbor_pos) then
-                        table.insert(neighbors, { point = final_neighbor_pos, is_gizmo_entry = false })
-                        existing_neighbor_keys[final_neighbor_pos_key] = true
-                    end
+                    table.insert(neighbors, { point = final_neighbor_pos })
                 end
             end
         end
     end
 
-    if all_gizmos_details_list then
-        local current_gizmo_data_for_link = nil
-        for _, gizmo_data in ipairs(all_gizmos_details_list) do
-            if gizmo_data.walkable_entry then
-                local walkable_entry_key = get_grid_key(gizmo_data.walkable_entry)
-                if walkable_entry_key == current_point_key then
-                    current_gizmo_data_for_link = gizmo_data
-                    break
-                end
-            end
-        end
-        
-        if current_gizmo_data_for_link then
-            local paired_gizmo_info = find_paired_gizmo(current_gizmo_data_for_link, all_gizmos_details_list)
-            if paired_gizmo_info and paired_gizmo_info.walkable_entry then
-                local target_node = paired_gizmo_info.walkable_entry
-                local target_node_key = get_grid_key(target_node)
+    traversal.add_traversal_neighbors(neighbors, point, current_point_key)
 
-                if target_node_key ~= current_point_key and not existing_neighbor_keys[target_node_key] then
-                    table.insert(neighbors, { 
-                        point = target_node, 
-                        is_gizmo_entry = true, 
-                        gizmo_type = current_gizmo_data_for_link.type .. "Link", 
-                        from_gizmo_actor = current_gizmo_data_for_link.actor, 
-                        to_gizmo_actor = paired_gizmo_info.actor 
-                    })
-                    existing_neighbor_keys[target_node_key] = true
-                end
-            end
-        end
-
-        for _, gizmo_data in ipairs(all_gizmos_details_list) do
-            if gizmo_data.walkable_entry then
-                local gizmo_entry_point = gizmo_data.walkable_entry
-                local gizmo_entry_point_key = get_grid_key(gizmo_entry_point)
-
-                if gizmo_entry_point_key ~= current_point_key and not existing_neighbor_keys[gizmo_entry_point_key] then
-                    local distance_to_gizmo = calculate_distance(point, gizmo_entry_point)
-                    
-                    if distance_to_gizmo <= (explorerlite.traversal_interaction_radius + grid_size * 2.0) and 
-                       distance_to_gizmo > 0.1 then
-                        
-                        if has_line_of_sight(point, gizmo_entry_point) then
-                            table.insert(neighbors, { 
-                                point = gizmo_entry_point, 
-                                is_gizmo_entry = true, 
-                                gizmo_type = gizmo_data.type .. "Approach", 
-                                original_gizmo_actor = gizmo_data.actor 
-                            })
-                            existing_neighbor_keys[gizmo_entry_point_key] = true
-                        end
-                    end
-                end
-            end
-        end
-    end
     return neighbors
 end
 
-function is_traversable_slope(start_point, end_point, max_allowed_total_height_diff)
-    local total_height_diff = math.abs(end_point:z() - start_point:z())
-    if total_height_diff == 0 then
-        return true
-    end
-    if total_height_diff > max_allowed_total_height_diff then
-        return false
+local function optimize_path(raw_path)
+    if not raw_path or #raw_path <= 2 then
+        return raw_path
     end
 
-    local step_count = 3
-    for i = 1, step_count do
-        local t = i / (step_count + 1)
-        local check_point = vec3:new(
-            start_point:x() + (end_point:x() - start_point:x()) * t,
-            start_point:y() + (end_point:y() - start_point:y()) * t,
-            start_point:z() + (end_point:z() - start_point:z()) * t
-        )
-        check_point = setHeight(check_point)
-        
-        local check_height_diff = math.abs(check_point:z() - start_point:z())
-        if not isWalkable(check_point) or check_height_diff > max_height_difference * 1.2 then
-            return false
-        end
-    end
-    
-    local distance_2d = math.sqrt(
-        (end_point:x() - start_point:x())^2 + 
-        (end_point:y() - start_point:y())^2
-    )
-    local height_diff = end_point:z() - start_point:z()
-    local slope_angle = math.abs(math.atan2(height_diff, distance_2d))
-
-    return slope_angle <= math.rad(35)
-end
-
-local function smooth_path(path)
-    if #path < 2 then return path end
-    local min_distance = grid_size
-    local smooth = {}
-    smooth[#smooth+1] = path[1]
+    local optimized_path = { raw_path[1] }
     local current_index = 1
-    while current_index < #path do
-        local next_index = current_index + 1
+
+    while current_index < #raw_path do
+        local current_point = raw_path[current_index]
+        local furthest_reachable = current_index + 1
         
-        for i = #path, current_index + 1, -1 do
-            if has_line_of_sight(path[current_index], path[i]) and 
-               calculate_distance(path[current_index], path[i]) >= min_distance then
-                next_index = i
-                break
+        if not traversal.is_traversal_entry_point(current_point) then
+            for test_index = current_index + 2, #raw_path do
+                local test_point = raw_path[test_index]
+                
+                if traversal.is_traversal_entry_point(test_point) then
+                    break
+                end
+                
+                if not has_line_of_sight(current_point, test_point) then
+                    break
+                end
+
+                furthest_reachable = test_index
             end
         end
-        smooth[#smooth+1] = path[next_index]
-        current_index = next_index
+        
+        table.insert(optimized_path, raw_path[furthest_reachable])
+        current_index = furthest_reachable
     end
-    return smooth
+
+    return optimized_path
 end
 
 local function reconstruct_path(came_from, current)
@@ -596,48 +352,15 @@ local function reconstruct_path(came_from, current)
         reversed_path[#reversed_path+1] = current
     end
 
-    local path = {}
+    local raw_path = {}
     for i = #reversed_path, 1, -1 do
-        path[#reversed_path - i + 1] = reversed_path[i]
+        raw_path[#reversed_path - i + 1] = reversed_path[i]
     end
 
-    local filtered_path = smooth_path(path)
-    return filtered_path
+    return optimize_path(raw_path)
 end
 
-
 local function a_star(start, goal)
-    local current_time_for_gizmo_cache = os.time()
-    cached_all_gizmos_details = {}
-    
-    if tracker.all_actors then
-        for _, actor in ipairs(tracker.all_actors) do
-            if actor then
-                local actor_name = actor:get_skin_name()
-                local actor_pos = actor:get_position()
-
-                if actor_name and type(actor_name) == "string" and actor_pos and not actor_pos:is_zero() and actor_name:match("[Tt]raversal_[Gg]izmo") then
-                    local gizmo_type_determined = determine_gizmo_type(actor_name)
-                    
-                    if gizmo_type_determined == "Jump" or gizmo_type_determined == "Stair" or gizmo_type_determined == "Climb" then
-                        local walkable_entry = get_walkable_grid_entry_near_gizmo(actor_pos)
-                        if walkable_entry then
-                            table.insert(cached_all_gizmos_details, {
-                                actor = actor,
-                                name = actor_name,
-                                position = actor_pos,
-                                type = gizmo_type_determined,
-                                walkable_entry = walkable_entry
-                            })
-                        end
-                    end
-                end
-            end
-        end
-    end
-    
-    last_gizmo_cache_update_time = current_time_for_gizmo_cache
-
     local closed_set = {}
     local came_from = {}
     local start_key = get_grid_key(start)
@@ -666,40 +389,31 @@ local function a_star(start, goal)
         end
 
         if current_distance < grid_size then
-            max_target_distance = target_distance_states[1]
-            target_distance_index = 1
             local raw_path = reconstruct_path(came_from, current)
             return raw_path
         end
 
-        if iterations > 2000 then
-            break
+        if iterations > 100000 then
         end
 
         closed_set[current_key] = true
 
-        local neighbors_data = get_neighbors(current, cached_all_gizmos_details)
+        local neighbors_data = get_neighbors(current)
         for i = 1, #neighbors_data do
             local neighbor_info = neighbors_data[i]
             local neighbor = neighbor_info.point
             local neighbor_key = get_grid_key(neighbor)
 
             if not closed_set[neighbor_key] then
-                local tentative_g_score
                 local edge_cost
-
-                if neighbor_info.gizmo_type and neighbor_info.gizmo_type:match("Link$") then
-                    edge_cost = 0.01
+                
+                if neighbor_info.is_traversal_entry and neighbor_info.traversal_type and neighbor_info.traversal_type:match("Link$") then
+                    edge_cost = 0.1
                 else
                     edge_cost = calculate_distance(current, neighbor)
-                    if neighbor_info.is_gizmo_entry then
-                        if neighbor_info.gizmo_type and neighbor_info.gizmo_type:match("Approach$") then
-                            edge_cost = edge_cost * 0.3
-                        end
-                    end
                 end
                 
-                tentative_g_score = g_score[current_key] + edge_cost
+                local tentative_g_score = g_score[current_key] + edge_cost
                 
                 if not g_score[neighbor_key] or tentative_g_score < g_score[neighbor_key] then
                     came_from[neighbor_key] = current
@@ -723,7 +437,27 @@ function explorerlite:set_custom_target(target)
     target_position = target
 end
 
-local function move_to_target()
+function explorerlite:can_reach_target(start, goal)
+    if not start or not goal then
+        return false
+    end
+    
+    if not isWalkable(start) or not isWalkable(goal) then
+        return false
+    end
+    
+    local path = a_star(start, goal)
+    if not path or #path == 0 then
+        return false
+    end
+    
+    local last_path_point = path[#path]
+    local distance_to_goal = calculate_distance(last_path_point, goal)
+    
+    return distance_to_goal <= grid_size * 2.0
+end
+
+function explorerlite:move_to_target()
     if explorerlite.is_task_running then
         return
     end
@@ -732,32 +466,20 @@ local function move_to_target()
     if not player_pos then return end
     
     if target_position then
-        local distance_to_target = calculate_distance(player_pos, target_position)
-        if distance_to_target > 500 then
-
+        if not isWalkable(target_position) then
             explorerlite:clear_path_and_target()
             return
         end
         
-        local significant_position_change = false
-        if last_position and calculate_distance(player_pos, last_position) > 25 then
+        local distance_to_target = calculate_distance(player_pos, target_position)
 
-            significant_position_change = true
-        end
-
-        local current_core_time = get_time_since_inject and get_time_since_inject() or os.time()
+        local current_core_time = get_time_since_inject and get_time_since_inject()
         local distance_since_last_calc = calculate_distance(player_pos, last_position or player_pos)
         local time_since_last_call = current_core_time - (last_a_star_call or 0)
 
         if not current_path or #current_path == 0 or path_index > #current_path 
-            or significant_position_change
             or (time_since_last_call >= recalculate_interval and distance_since_last_calc >= min_movement_to_recalculate) then
             
-            if explorerlite.is_in_gizmo_traversal_state and (#current_path == 0 or path_index > #current_path) then
-                 orbwalker.set_clear_toggle(false)
-                 explorerlite.is_in_gizmo_traversal_state = false
-            end
-
             current_path = a_star(player_pos, target_position)
             path_index = 1
             last_a_star_call = current_core_time
@@ -765,6 +487,13 @@ local function move_to_target()
 
             if not current_path or #current_path == 0 then
                 return 
+            end
+            
+            local last_path_point = current_path[#current_path]
+            local distance_to_final_target = calculate_distance(last_path_point, target_position)
+            if distance_to_final_target > grid_size * 2.0 then
+                explorerlite:clear_path_and_target()
+                return
             end
         end
 
@@ -782,30 +511,51 @@ local function move_to_target()
             return
         end
 
-        if calculate_distance(player_pos, next_point) < grid_size * 1.2 then
-            local reached_this_point = next_point
-
-            local is_gizmo_entry_node = false
-            if cached_all_gizmos_details then
-                local reached_key = get_grid_key(reached_this_point) -- Get key for current point
-                for _, gizmo_detail in ipairs(cached_all_gizmos_details) do
-                    if gizmo_detail.walkable_entry then
-                        local gizmo_entry_key = get_grid_key(gizmo_detail.walkable_entry) -- Get key for gizmo entry
-                        if gizmo_entry_key == reached_key then
-                            is_gizmo_entry_node = true
-                            -- For debugging, you could add: print("ExplorerLite: Matched gizmo entry node: " .. (gizmo_detail.name or 'Unknown Gizmo') .. " at key: " .. reached_key)
-                            break
-                        end
+        local function check_upcoming_traversal()
+            local look_ahead_range = math.min(3, #current_path - path_index)
+            for i = 0, look_ahead_range do
+                local check_index = path_index + i
+                if check_index <= #current_path then
+                    local point_to_check = current_path[check_index]
+                    local is_traversal, pair = traversal.is_traversal_entry_point(point_to_check)
+                    if is_traversal then
+                        return true, pair, point_to_check
                     end
                 end
             end
+            return false, nil, nil
+        end
 
-            if is_gizmo_entry_node then
+        local function check_recent_traversal()
+            local look_back_range = math.min(3, path_index - 1)
+            for i = 0, look_back_range do
+                local check_index = path_index - i
+                if check_index >= 1 then
+                    local point_to_check = current_path[check_index]
+                    local is_traversal, pair = traversal.is_traversal_entry_point(point_to_check)
+                    if is_traversal then
+                        return true, pair, point_to_check
+                    end
+                end
+            end
+            return false, nil, nil
+        end
+
+        if calculate_distance(player_pos, next_point) < grid_size * 1.2 then
+            local reached_this_point = next_point
+
+            local upcoming_traversal, upcoming_pair, upcoming_point = check_upcoming_traversal()
+            local recent_traversal, recent_pair, recent_point = check_recent_traversal()
+            local current_traversal, current_pair = traversal.is_traversal_entry_point(reached_this_point)
+
+            if upcoming_traversal and not explorerlite.is_in_traversal_state then
                 orbwalker.set_clear_toggle(true)
-                explorerlite.is_in_gizmo_traversal_state = true
-            elseif explorerlite.is_in_gizmo_traversal_state then
+                explorerlite.is_in_traversal_state = true
+            end
+
+            if not upcoming_traversal and not current_traversal and not recent_traversal and explorerlite.is_in_traversal_state then
                 orbwalker.set_clear_toggle(false)
-                explorerlite.is_in_gizmo_traversal_state = false
+                explorerlite.is_in_traversal_state = false
             end
 
             if path_index < #current_path then
@@ -828,22 +578,9 @@ local function move_to_target()
                     explorerlite:clear_path_and_target()
                 else
                     current_path = {}
-                    if explorerlite.is_in_gizmo_traversal_state then
-                         orbwalker.set_clear_toggle(false)
-                         explorerlite.is_in_gizmo_traversal_state = false
-                    end
                 end
             end
         end
-    end
-end
-
-
-local function move_to_target_aggresive()
-    if target_position then
-        pathfinder.force_move_raw(target_position)
-    else
-        pathfinder.force_move_raw(vec3:new(9.204102, 8.915039, 0.000000))
     end
 end
 
@@ -854,143 +591,16 @@ function explorerlite:is_custom_target_valid()
     if not isWalkable(target_position) then
         return false
     end
+
     local player_pos = tracker.player_position
     if not player_pos then return false end
 
-    local path = a_star(player_pos, target_position)
-    if path and #path > 0 then
-        return true
-    end
-
-    return false
+    return true
 end
 
------------------------------------------------------------------------------------------------------------------------------------------
-------A_START_WAYPOINT FOR WAYPOINTS NAVIGATION
------------------------------------------------------------------------------------------------------------------------------------------
 function explorerlite:a_star_waypoint(start_index, target_index, range_threshold)
-
-    local waypoints = tracker.waypoints
-    if not waypoints or type(waypoints) ~= "table" or #waypoints == 0 then
-        console.print("11111111111111111111111111")
-        return nil
-    end
-
-    if type(start_index) ~= "number" or start_index < 1 then
-        console.print("22222222222222222222222222")
-        return nil
-    end
-
-    if type(target_index) ~= "number" or target_index < 1 or target_index > #waypoints then
-        console.print("33333333333333333333333333")
-        return nil
-    end
-
-    if type(range_threshold) ~= "number" or range_threshold <= 0 then
-        console.print("44444444444444444444444444")
-        return nil
-    end
-
-    local start_node = waypoints[start_index]
-    local target_node = waypoints[target_index]
-
-    if not start_node or type(start_node.dist_to) ~= "function" then
-        console.print("55555555555555555555555555")
-        return nil
-    end
-
-    if not target_node or type(target_node.dist_to) ~= "function" then
-        console.print("66666666666666666666666666")
-        return nil
-    end
-
-    local came_from = {}
-    local g_score = {}
-    local f_score = {}
-
-    for i = 1, #waypoints do
-        g_score[i] = math.huge
-        f_score[i] = math.huge
-    end
-
-    g_score[start_index] = 0
-    f_score[start_index] = start_node:dist_to(target_node)
-
-    local open_set = MinHeap.new(function(idx_a, idx_b)
-        return f_score[idx_a] < f_score[idx_b]
-    end)
-
-    open_set:push(start_index)
-    local open_set_lookup = {[start_index] = true}
-
-    local iterations = 0
-    local max_iterations = #waypoints * 10
-
-    while not open_set:empty() do
-        iterations = iterations + 1
-        if iterations > max_iterations then
-            return nil 
-        end
-
-        local current_idx = open_set:pop()
-        open_set_lookup[current_idx] = false
-
-        if current_idx == target_index then
-            local full_path = {}
-            local cur = target_index
-            while cur do
-                table.insert(full_path, 1, cur)
-                if cur == start_index and not came_from[cur] then
-                    break
-                end
-                cur = came_from[cur]
-                if cur and (#full_path > #waypoints) then
-                    return nil 
-                end
-            end
-            if #full_path == 0 or full_path[1] ~= start_index then
-                return nil
-            end
-            return full_path
-        end
-
-        local current_node = waypoints[current_idx]
-        if not current_node or type(current_node.dist_to) ~= "function" then
-            goto continue_loop
-        end
-        
-        for i = 1, #waypoints do
-            if i == current_idx then goto continue_neighbor_loop end
-
-            local neighbor_node = waypoints[i]
-            if not neighbor_node or type(neighbor_node.dist_to) ~= "function" then
-                goto continue_neighbor_loop
-            end
-
-            local distance = current_node:dist_to(neighbor_node)
-
-            if distance <= range_threshold then
-                local tentative_g_score = g_score[current_idx] + distance
-                if tentative_g_score < g_score[i] then
-                    came_from[i] = current_idx
-                    g_score[i] = tentative_g_score
-                    f_score[i] = tentative_g_score + neighbor_node:dist_to(target_node)
-                    
-                    if not open_set_lookup[i] then
-                        open_set:push(i)
-                        open_set_lookup[i] = true
-                    else
-                        open_set:update(i) 
-                    end
-                end
-            end
-            ::continue_neighbor_loop::
-        end
-        ::continue_loop::
-    end
-    return nil
+    return a_star_waypoints.a_star_waypoint(start_index, target_index, range_threshold)
 end
-
 
 local STUCK_TIME_THRESHOLD = 3.0
 local STUCK_DISTANCE_THRESHOLD = 0.3
@@ -1000,7 +610,7 @@ local function is_player_stuck()
     local current_pos = tracker.player_position
     if not current_pos then return false end
 
-    local current_precise_time = get_time_since_inject and get_time_since_inject() or os.time()
+    local current_precise_time = get_time_since_inject and get_time_since_inject()
 
     if not last_position or not last_position.x then
         last_position = vec3:new(current_pos:x(), current_pos:y(), current_pos:z())
@@ -1015,10 +625,10 @@ local function is_player_stuck()
     end
 
     if (current_precise_time - last_move_time) >= STUCK_TIME_THRESHOLD then
-        return true -- Stuck
+        return true
     end
 
-    return false -- Not stuck yet
+    return false
 end
 
 local function find_safe_unstuck_point()
@@ -1091,7 +701,7 @@ local function handle_stuck_player()
                 if player_pos_after_evade and player_pos_after_evade.x then
                     last_position = vec3:new(player_pos_after_evade:x(), player_pos_after_evade:y(), player_pos_after_evade:z())
                 end
-                last_move_time = get_time_since_inject and get_time_since_inject() or os.time()
+                last_move_time = get_time_since_inject and get_time_since_inject()
                 explorerlite:clear_path_and_target()
             else
                 explorerlite:set_custom_target(unstuck_point)
@@ -1103,18 +713,12 @@ local function handle_stuck_player()
     end
 end
 
-function explorerlite:move_to_target()
-    if settings.aggresive_movement then
-        move_to_target_aggresive()
-    else
-        move_to_target()
-    end
-end
-
 on_update(function()
     if not settings.enabled then
         return
     end
+
+    traversal.update_cache()
 
     if explorerlite.is_task_running then
          return -- Don't run explorer logic if a task is running
@@ -1143,9 +747,59 @@ on_render(function()
         return
     end
 
-    -- Draw Player Position
-    graphics.circle_3d(player_pos, 0.5, color_white(200), 2)
-    graphics.text_3d("PLAYER\\nZ: " .. string.format("%.2f", player_pos:z()), player_pos + vec3:new(0,0,1), 10, color_white(255))
+    local fk = false
+    if fk then
+        -- Draw Neighbor Grid (Green = Walkable, Red = Non-Walkable)
+        local grid_range = 15 -- How many cells to show in each direction
+        local ppx, ppy, ppz = player_pos:x(), player_pos:y(), player_pos:z()
+        
+        -- Calculate the grid coordinates of the player position (same as A* algorithm)
+        local player_grid_x = floor(ppx / grid_size)
+        local player_grid_y = floor(ppy / grid_size)
+        local player_grid_z = floor(ppz / grid_size)
+        
+        for x = -grid_range, grid_range do
+            for y = -grid_range, grid_range do
+                -- Skip center (player position)
+                if not (x == 0 and y == 0) then
+                    -- Calculate grid coordinates relative to player
+                    local grid_x = player_grid_x + x
+                    local grid_y = player_grid_y + y
+                    local grid_z = player_grid_z
+
+                    -- Convert back to world coordinates (this matches A* grid exactly)
+                    local grid_point = vec3:new(
+                        grid_x * grid_size,
+                        grid_y * grid_size,
+                        grid_z * grid_size
+                    )
+                    grid_point = setHeight(grid_point)
+
+                    -- Check if walkable
+                    local is_walkable = isWalkable(grid_point)
+                    local circle_size = 0.2
+
+                    -- Make closer points more opaque
+                    local distance_from_player = calculate_distance(player_pos, grid_point)
+
+                    if is_walkable then
+                        grid_color = color_green(200)
+                    else
+                        grid_color = color_red(200)
+                    end
+
+                    -- Draw the grid point
+                    graphics.circle_3d(grid_point, circle_size, grid_color, 1)
+
+                    -- Add Z coordinate for closer points
+                    --if distance_from_player < 8 then
+                    --    local z_info = string.format("%.1f", grid_point:z())
+                    --    graphics.text_3d(z_info, grid_point + vec3:new(0,0,0.3), 18, grid_color)
+                    --end
+                end
+            end
+        end
+    end
 
     -- Draw Target Position
     if target_position then
@@ -1188,66 +842,70 @@ on_render(function()
             end
         end
     end
-
-    -- Draw Neighbors Analysis (Render Safe)
-    if player_pos and player_pos.x then
-        local all_candidate_neighbors_data = {}
-        local ppx, ppy, ppz = player_pos:x(), player_pos:y(), player_pos:z()
-
-        for _, dir_table in ipairs(neighbor_directions) do
-            local raw_n = vec3:new(ppx + dir_table.x * grid_size, ppy + dir_table.y * grid_size, ppz)
-            local final_n = setHeight(raw_n)
-            table.insert(all_candidate_neighbors_data, {raw = raw_n, final = final_n, dir = dir_table})
-        end
-
-        local gizmos_for_render = cached_all_gizmos_details or {}
-        local valid_neighbors_data_from_func = get_neighbors(player_pos, gizmos_for_render) 
-        local valid_neighbor_map_render = {}
-        for _, vn_data in ipairs(valid_neighbors_data_from_func) do
-             local vn_vec3 = vn_data.point 
-             if vn_vec3 and vn_vec3.x then
-                valid_neighbor_map_render[get_grid_key(vn_vec3)] = true
-             end
-        end
-
-        graphics.text_3d("Neighbors (V/C): " .. #valid_neighbors_data_from_func .. "/" .. #all_candidate_neighbors_data, player_pos + vec3:new(0, 1.5, 2.5), 10, color_orange(255))
-
-        for _, c_neighbor_info in ipairs(all_candidate_neighbors_data) do
-            local neighbor_final_pos_render = c_neighbor_info.final
-            if neighbor_final_pos_render and neighbor_final_pos_render.x then
-                local is_valid_render = valid_neighbor_map_render[get_grid_key(neighbor_final_pos_render)]
-                local neighbor_color_render = is_valid_render and color_purple(150) or color_white(100)
-                local line_thickness_render = is_valid_render and 2 or 1
-                local text_info_render = ""
-                local height_diff_val_render = neighbor_final_pos_render:z() - ppz
-
-                if isWalkable(neighbor_final_pos_render) then
-                    if height_diff_val_render > 0 then 
-                        if math.abs(height_diff_val_render) <= max_uphill_difference then text_info_render = "UP_STEP" else text_info_render = "UP_SLOPE?" end
-                        if not is_valid_render and (math.abs(height_diff_val_render) > max_uphill_difference and not is_traversable_slope(player_pos, neighbor_final_pos_render, max_uphill_difference)) then text_info_render = "UP_SLOPE_FAIL" end
-                    else 
-                        if height_diff_val_render >= -0.1 then text_info_render = "FLAT" else text_info_render = "DOWN" end
-                        if not utils.is_safe_descent(player_pos, neighbor_final_pos_render, max_safe_direct_drop, is_traversable_slope, max_downhill_difference) then 
-                            text_info_render = "UNSAFE_DROP"
-                        end
-                    end
-                else
-                    text_info_render = "NOT_WALKABLE"
-                end
-                if is_valid_render then text_info_render = "VALID_N " .. text_info_render end
-
-                graphics.line_3d(player_pos, neighbor_final_pos_render, neighbor_color_render, line_thickness_render)
-                graphics.circle_3d(neighbor_final_pos_render, 0.25, neighbor_color_render, line_thickness_render)
-                graphics.text_3d(text_info_render .. "\\nZ:" .. string.format("%.1f", neighbor_final_pos_render:z()) .. " dZ:" .. string.format("%.1f", height_diff_val_render), neighbor_final_pos_render + vec3:new(0,0,0.3), 6, neighbor_color_render)
-            end
-        end
-    end
     
     -- Draw Stuck Status
     if is_player_stuck() then
         graphics.text_3d("STATUS: STUCK", player_pos + vec3:new(0, -1.5, 2), 12, color_red(255), true)
     else
         graphics.text_3d("STATUS: OK", player_pos + vec3:new(0, -1.5, 2), 10, color_green(200))
+    end
+    
+    -- Draw Persistent Traversal Pairs Debug
+    local persistent_pairs = traversal.get_cached_pairs()
+    local persistent_count = traversal.get_persistent_pairs_count()
+    
+    -- Show persistent pairs count
+    graphics.text_3d("PERSISTENT PAIRS: " .. persistent_count, player_pos + vec3:new(0, 1.5, 3), 12, color_cyan(255))
+    
+    if persistent_pairs and #persistent_pairs > 0 then
+        for i, pair in ipairs(persistent_pairs) do
+            if pair.walkable1 and pair.walkable2 and pair.marker1 and pair.marker2 then
+                -- Draw connections between walkable points
+                graphics.line_3d(pair.walkable1, pair.walkable2, color_cyan(180), 3)
+                
+                -- Draw walkable points (entry/exit points)
+                graphics.circle_3d(pair.walkable1, 0.8, color_cyan(220), 3)
+                graphics.circle_3d(pair.walkable2, 0.8, color_cyan(220), 3)
+                
+                -- Draw markers
+                graphics.circle_3d(pair.marker1.position, 0.6, color_orange(200), 2)
+                graphics.circle_3d(pair.marker2.position, 0.6, color_orange(200), 2)
+                
+                -- Draw lines from markers to walkable points
+                graphics.line_3d(pair.marker1.position, pair.walkable1, color_orange(150), 1)
+                graphics.line_3d(pair.marker2.position, pair.walkable2, color_orange(150), 1)
+                
+                -- Draw gizmos
+                graphics.circle_3d(pair.gizmo1.position, 0.4, color_purple(200), 2)
+                graphics.circle_3d(pair.gizmo2.position, 0.4, color_purple(200), 2)
+                
+                -- Draw lines from gizmos to markers
+                graphics.line_3d(pair.gizmo1.position, pair.marker1.position, color_purple(100), 1)
+                graphics.line_3d(pair.gizmo2.position, pair.marker2.position, color_purple(100), 1)
+                
+                -- Add text labels
+                local mid_point = vec3:new(
+                    (pair.walkable1:x() + pair.walkable2:x()) / 2,
+                    (pair.walkable1:y() + pair.walkable2:y()) / 2,
+                    (pair.walkable1:z() + pair.walkable2:z()) / 2 + 1
+                )
+                
+                local pair_type = pair.type or "Unknown"
+                graphics.text_3d("TRAVERSAL " .. i .. "\\nType: " .. pair_type .. "\\nPERSISTENT", mid_point, 10, color_cyan(255))
+                
+                -- Label walkable points
+                graphics.text_3d("ENTRY", pair.walkable1 + vec3:new(0, 0, 0.5), 8, color_cyan(255))
+                graphics.text_3d("EXIT", pair.walkable2 + vec3:new(0, 0, 0.5), 8, color_cyan(255))
+                
+                -- Label markers
+                graphics.text_3d("M1", pair.marker1.position + vec3:new(0, 0, 0.3), 8, color_orange(255))
+                graphics.text_3d("M2", pair.marker2.position + vec3:new(0, 0, 0.3), 8, color_orange(255))
+                
+                -- Label gizmos  
+                graphics.text_3d("G1", pair.gizmo1.position + vec3:new(0, 0, 0.3), 8, color_purple(255))
+                graphics.text_3d("G2", pair.gizmo2.position + vec3:new(0, 0, 0.3), 8, color_purple(255))
+            end
+        end
     end
 end)
 

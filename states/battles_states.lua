@@ -9,15 +9,6 @@ local DELAY_FIGHT = 1
 local DIST_ENGAGE_OR_REPOSITION = 10
 local FIGHT_STATE_TIMEOUT = 30
 
-local function is_valid_target(enemy)
-    return enemy
-       and (enemy:is_elite() or enemy:is_champion() or enemy:is_boss())
-       and enemy:is_enemy()
-       and not enemy:is_untargetable()
-       and not enemy:is_dead()
-       and not enemy:is_immune()
-end
-
 battles_states.FIGHT_ELITE_CHAMPION = {
     
     enter = function(sm)
@@ -30,7 +21,7 @@ battles_states.FIGHT_ELITE_CHAMPION = {
         if not tracker.target_selector then
             local enemies = tracker.all_actors
             for _, obj in ipairs(enemies) do
-                if is_valid_target(obj) and obj:get_position():dist_to(tracker.player_position) < DIST_FIGHT then
+                if utils.is_valid_target(obj) and obj:get_position():dist_to(tracker.player_position) < DIST_FIGHT then
                     tracker.target_selector = obj
                     return
                 end
@@ -60,15 +51,13 @@ battles_states.FIGHT_ELITE_CHAMPION = {
         else
             if tracker.check_time("random_circle_delay_helltide", 1.3) and target_pos then
                 local new_pos = utils.get_random_point_circle(target_pos, 9, 1.2)
-                explorerlite:set_custom_target(new_pos)
-                if explorerlite:is_custom_target_valid() then
+                if new_pos and not explorerlite:is_custom_target_valid() then
+                    explorerlite:set_custom_target(new_pos)
                     tracker.clear_key("random_circle_delay_helltide")
                 end
             end
-            
-            if explorerlite:is_custom_target_valid() then
-                explorerlite:move_to_target()
-            end
+
+            explorerlite:move_to_target()
         end
         
 

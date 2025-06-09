@@ -138,15 +138,6 @@ local skipStates = {
     BACKTRACKING_TO_WAYPOINT = true,
 }
 
-local function is_valid_target(enemy)
-    return enemy
-       and (enemy:is_elite() or enemy:is_champion() or enemy:is_boss())
-       and enemy:is_enemy()
-       and not enemy:is_untargetable()
-       and not enemy:is_dead()
-       and not enemy:is_immune()
-end
-
 explore_states.BACKTRACKING_TO_WAYPOINT = {
     enter = function(sm)
         console.print("HELLTIDE: BACKTRACKING_TO_WAYPOINT")
@@ -161,7 +152,7 @@ explore_states.BACKTRACKING_TO_WAYPOINT = {
 
         local reached = explore_states:navigate_to_waypoint(tracker.return_point)
         
-        if not explorerlite.is_in_gizmo_traversal_state then
+        if not explorerlite.is_in_traversal_state then
             local enemies = utils.find_enemies_in_radius(tracker.player_position, 1.5)
             if #enemies > 0 then
                 orbwalker.set_clear_toggle(true)
@@ -204,7 +195,7 @@ explore_states.NAVIGATE_TO_WAYPOINT = {
 
         local reached = explore_states:navigate_to_waypoint(i)
 
-        if not explorerlite.is_in_gizmo_traversal_state then
+        if not explorerlite.is_in_traversal_state then
             local enemies = utils.find_enemies_in_radius(tracker.player_position, 1.5)
             if #enemies > 0 then
                 orbwalker.set_clear_toggle(true)
@@ -215,8 +206,11 @@ explore_states.NAVIGATE_TO_WAYPOINT = {
 
         if reached then
             tracker.waypoint_index = i
-            tracker.current_chest = utils.get_chest_tracked(tracker.navigate_to_waypoint_chest, tracker)
-            if tracker.current_chest then
+            local is_valid_tracked_chest = utils.get_chest_tracked(tracker.navigate_to_waypoint_chest, tracker)
+            local is_valid_chest = utils.find_helltide_chest_by_position(is_valid_tracked_chest.position)
+            if is_valid_chest then
+                tracker.current_chest = is_valid_chest
+                tracker.current_chest_saved_pos = is_valid_tracked_chest.position
                 sm:change_state("MOVING_TO_CHEST")
             else
                 tracker.current_chest = nil
@@ -259,11 +253,38 @@ explore_states.EXPLORE_HELLTIDE = {
             sm:change_state("LAP_COMPLETED")
             return
         end
-        
+
+        if utils.should_activate_obols() then
+            sm:change_state("OBOLS_TRIGGERED")
+            return
+        end
 
         if utils.should_activate_alfred() then
-            sm:change_state("ALFRED_TRIGGERED")
-            return
+            local nearby_enemies = utils.find_enemies_in_radius_with_z(tracker.player_position, 15, 2)
+            
+            if #nearby_enemies > 0 then
+                orbwalker.set_clear_toggle(true)
+                local random_enemy = nearby_enemies[math.random(#nearby_enemies)]
+                local pos_enemy = random_enemy:get_position()
+                
+                if utils.distance_to(random_enemy) > 10 then
+                    explorerlite:set_custom_target(pos_enemy)
+                    explorerlite:move_to_target()
+                else
+                    if tracker.check_time("random_circle_delay_alfred", 1.3) and pos_enemy then
+                        local new_pos = utils.get_random_point_circle(pos_enemy, 9, 1.2)
+                        if new_pos and not explorerlite:is_custom_target_valid() then
+                            explorerlite:set_custom_target(new_pos)
+                            tracker.clear_key("random_circle_delay_alfred")
+                        end
+                    end
+                    explorerlite:move_to_target()
+                end
+            else
+                orbwalker.set_clear_toggle(false)
+                sm:change_state("ALFRED_TRIGGERED")
+                return
+            end
         end
 
         local current_hearts = get_helltide_coin_hearts()
@@ -294,7 +315,7 @@ explore_states.EXPLORE_HELLTIDE = {
         --explorerlite:set_custom_target(vec3:new(-1794.236938, -1281.271606, 0.839844))
         --explorerlite:move_to_target()
 
-        if not explorerlite.is_in_gizmo_traversal_state then
+        if not explorerlite.is_in_traversal_state then
             local enemies = utils.find_enemies_in_radius(tracker.player_position, 1.5)
             if #enemies > 0 then
                 orbwalker.set_clear_toggle(true)
@@ -309,7 +330,7 @@ explore_states.EXPLORE_HELLTIDE = {
             local enemies = tracker.all_actors
             for _, obj in ipairs(enemies) do
                 local obj_pos = obj:get_position()
-                if is_valid_target(obj) and math.abs(tracker.player_position:z() - obj_pos:z()) <= 0.80 and obj_pos:dist_to(tracker.player_position) < 15 then
+                if utils.is_valid_target(obj) and math.abs(tracker.player_position:z() - obj_pos:z()) <= 0.80 and obj_pos:dist_to(tracker.player_position) < 15 then
                     tracker.target_selector = obj
                     sm:change_state("FIGHT_ELITE_CHAMPION")
                     return
@@ -323,7 +344,7 @@ explore_states.EXPLORE_HELLTIDE = {
             tracker.clear_key("helltide_delay_find_chests")
             for chest_name, _ in pairs(enums.helltide_chests_info) do
                 local chest_found = utils.find_closest_target(chest_name)
-                if chest_name ~= "Hell_Prop_Chest_Rare_Locked_GamblingCurrency" and chest_found and chest_found:is_interactable() and utils.distance_to(chest_found) < 35 and math.abs(tracker.player_position:z() - chest_found:get_position():z()) <= 4 then
+                if chest_found and chest_found:is_interactable() and utils.distance_to(chest_found) < 35 and math.abs(tracker.player_position:z() - chest_found:get_position():z()) <= 3 then
                     if not utils.is_chest_already_tracked(chest_found, tracker) then
                         tracker.current_chest = chest_found
                         sm:change_state("NEW_CHEST_FOUND")
@@ -355,6 +376,7 @@ explore_states.EXPLORE_HELLTIDE = {
                         local silent_chest = utils.find_closest_target("Hell_Prop_Chest_Rare_Locked_GamblingCurrency")
                         if silent_chest and silent_chest:is_interactable() and utils.distance_to(silent_chest) < 25 then
                             tracker.current_chest = silent_chest
+                            tracker.current_chest_saved_pos = silent_chest:get_position()
                             sm:change_state("MOVING_TO_SILENT_CHEST")
                             return
                         end
@@ -396,13 +418,7 @@ explore_states.EXPLORE_HELLTIDE = {
                 if explorerlite:is_custom_target_valid() then
                     explorerlite:move_to_target()
                 else
-                    local randomized_waypoint = utils.get_random_point_circle(current_waypoint, 1.5, 3)
-                    if distance > 0 and distance < 6.6 then
-                        explorerlite:set_custom_target(current_waypoint)
-                    else
-                        explorerlite:set_custom_target(randomized_waypoint)
-                    end
-                    explorerlite:move_to_target()
+                    explorerlite:set_custom_target(current_waypoint)
                 end        
             end
         end
@@ -513,9 +529,15 @@ explore_states.RESURRECT_AND_RETURN = {
             return
         end
 
-        local reached = explore_states:navigate_to_waypoint(tracker.waypoint_index)
+        local prev_state = sm:get_previous_state()
 
-        if not explorerlite.is_in_gizmo_traversal_state then
+        if prev_state == "ALFRED_TRIGGERED" then
+            sm:change_state("ALFRED_TRIGGERED")
+            return
+        end
+
+        local reached = explore_states:navigate_to_waypoint(tracker.waypoint_index)
+        if not explorerlite.is_in_traversal_state then
             local enemies = utils.find_enemies_in_radius(tracker.player_position, 1.5)
             if #enemies > 0 then
                 orbwalker.set_clear_toggle(true)
@@ -525,17 +547,17 @@ explore_states.RESURRECT_AND_RETURN = {
         end
 
         if reached then
-            local target_state = tracker.previous_state_before_death
-            console.print("HELLTIDE: Reached recovery waypoint " .. tracker.waypoint_index .. ". Returning to state: " .. target_state)
-            tracker.previous_state_before_death = nil
-            
-            sm:change_state(target_state)
+            if prev_state == "MOVING_TO_CHEST" or prev_state == "INTERACT_CHEST" or prev_state == "WAIT_AFTER_INTERECTION" or prev_state == "MOVING_TO_SILENT_CHEST" or prev_state == "WAIT_AFTER_FIGHT" then
+                sm:change_state("EXPLORE_HELLTIDE")
+                return
+            end
+
+            sm:change_state(prev_state)
         end
     end,
     exit = function(sm)
         console.print("HELLTIDE: Exiting RESURRECT_AND_RETURN.")
-        orbwalker.set_clear_toggle(false) 
-        tracker.previous_state_before_death = nil 
+        orbwalker.set_clear_toggle(false)  
     end,
 }
 

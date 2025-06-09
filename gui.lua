@@ -1,5 +1,5 @@
 local gui = {}
-local version = "v1.2.1b"
+local version = "v1.2.3b"
 local plugin_label = "s_helltide"
 local author = "EmptyZero"
 
@@ -10,6 +10,39 @@ end
 local function create_slider_int(min, max, default, key)
     return slider_int:new(min, max, default, get_hash(plugin_label .. "_" .. key))
 end
+
+local function create_combo(default, key)
+    return combo_box:new(default, get_hash(plugin_label .. "_" .. key))
+end
+
+function gui.get_character_class()
+    local local_player = get_local_player();
+    if not local_player then return 'default' end
+    local class_id = local_player:get_character_class_id()
+    local character_classes = {
+        [0] = 'sorcerer',
+        [1] = 'barbarian',
+        [3] = 'rogue',
+        [5] = 'druid',
+        [6] = 'necromancer',
+        [7] = 'spiritborn'
+    }
+    if character_classes[class_id] then
+        return character_classes[class_id]
+    else
+        return 'default'
+    end
+end
+
+gui.gamble_categories = {
+    ['sorcerer'] = {"Cap", "Whispering Key", "Tunic", "Gloves", "Boots", "Pants", "Amulet", "Ring", "Sword", "Mace", "Dagger", "Staff", "Wand", "Focus"},
+    ['barbarian'] = {"Cap", "Whispering Key", "Tunic", "Gloves", "Boots", "Pants", "Amulet", "Ring", "Axe", "Sword", "Mace", "Two-Handed Axe", "Two-Handed Sword", "Two-Handed Mace", "Polearm"},
+    ['rogue'] = {"Cap", "Whispering Key", "Tunic", "Gloves", "Boots", "Pants", "Amulet", "Ring", "Sword", "Dagger", "Bow", "Crossbow"},
+    ['druid'] = {"Cap", "Whispering Key", "Tunic", "Gloves", "Boots", "Pants", "Amulet", "Ring", "Axe", "Sword", "Mace", "Two-Handed Axe", "Two-Handed Mace", "Polearm", "Dagger", "Staff", "Totem"},
+    ['necromancer'] = {"Cap", "Whispering Key", "Tunic", "Gloves", "Boots", "Pants", "Amulet", "Ring", "Axe", "Sword", "Mace", "Two-Handed Axe", "Two-Handed Sword", "Scythe", "Two-Handed Mace", "Two-Handed Scythe", "Dagger", "Shield", "Wand", "Focus"},
+    ['spiritborn'] = {"Quarterstaff", "Cap", "Whispering Key", "Tunic", "Gloves", "Boots", "Pants", "Amulet", "Ring", "Polearm", "Glaive"},
+    ['default'] = {"CLASS NOT LOADED"}
+}
 
 gui.elements = {
     main_tree = tree_node:new(0),
@@ -32,7 +65,20 @@ gui.elements = {
     
     chests_settings_tree = tree_node:new(4),
     return_to_origin_toggle = create_checkbox(false, "return_to_origin"),
-    open_silent_chests_toggle = create_checkbox(false, "open_silent_chests")
+    open_silent_chests_toggle = create_checkbox(false, "open_silent_chests"),
+    
+    obols_settings_tree = tree_node:new(5),
+    gamble_toggle = create_checkbox(false, "gamble_toggle"),
+    obols_threshold_slider = create_slider_int(100, 2000, 500, "obols_threshold"),
+    gamble_category = {
+        ['sorcerer'] = create_combo(0, "gamble_sorcerer_category"),
+        ['barbarian'] = create_combo(0, "gamble_barbarian_category"),
+        ['rogue'] = create_combo(0, "gamble_rogue_category"),
+        ['druid'] = create_combo(0, "gamble_druid_category"),
+        ['necromancer'] = create_combo(0, "gamble_necromancer_category"),
+        ['spiritborn'] = create_combo(0, "gamble_spiritborn_category"),
+        ['default'] = create_combo(0, "gamble_default_category"),
+    }
 }
 
 function gui.draw_status(current_task)
@@ -78,6 +124,7 @@ end
 
 function gui.render()
     if not gui.elements.main_tree:push("S Helltide | " .. author .. " | " .. version) then return end
+    local class = gui.get_character_class()
 
     gui.elements.main_toggle:render("Enable", "Enable the bot")
     gui.elements.maiden_enable_first_maiden_toggle:render("Start rotation from the Maiden", "If enabled, it will start by farming the Maiden (you need at least 3 hearts)")
@@ -112,6 +159,15 @@ function gui.render()
         gui.elements.open_silent_chests_toggle:render("Open Silent Chests", "If enabled, Silent Chests are attempted to be opened during exploration state")
         gui.elements.return_to_origin_toggle:render("Backtracking to point before trigger", "Returns the player to the point of origin after attempting to open a previously visited chest")
         gui.elements.chests_settings_tree:pop()
+    end
+
+    -- Menu Obols - Settings
+    if gui.elements.obols_settings_tree:push("Obols - Settings") then
+        gui.elements.gamble_toggle:render("Enable Gambling", "Toggle gambling on/off")
+        gui.elements.obols_threshold_slider:render("Obols Threshold", "Minimum amount of obols required before gambling")
+        gui.elements.gamble_category[class]:render("Gamble Category", gui.gamble_categories[class], "Select the item category to gamble")
+        
+        gui.elements.obols_settings_tree:pop()
     end
 
     gui.elements.main_tree:pop()

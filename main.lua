@@ -73,12 +73,12 @@ on_render(function()
     end
     --graphics.circle_3d(vec3:new(216.226562, -601.409180, 6.959961), 140, color_red(255), 1)
     --graphics.circle_3d(vec3:new(216.226562, -601.409180, 6.959961), 120, colors.objectives, 1)
-    if tracker.current_maiden_position and gui.elements.debug_toggle:get() then
-        graphics.circle_3d(tracker.current_maiden_position, 16, colors.objectives, 1)
-    end
+    --if tracker.current_maiden_position and gui.elements.debug_toggle:get() then
+    --    graphics.circle_3d(tracker.current_maiden_position, 16, colors.objectives, 1)
+    --end
     --graphics.text_3d(tostring(get_player_position():x()), get_player_position(), 16, color_white(255))
-    if tracker.player_position and gui.elements.debug_toggle:get() then
-        graphics.circle_3d(tracker.player_position, 3, colors.objectives, 1)
-        graphics.text_3d(tracker.player_position:x() .. " | " .. tracker.player_position:y() .. " | " .. tracker.player_position:z(), tracker.player_position, 15, colors.objectives)
-    end
+    --if tracker.player_position and gui.elements.debug_toggle:get() then
+    --    graphics.circle_3d(tracker.player_position, 3, colors.objectives, 1)
+    --    graphics.text_3d(tracker.player_position:x() .. " | " .. tracker.player_position:y() .. " | " .. tracker.player_position:z(), tracker.player_position, 15, colors.objectives)
+    --end
 end)

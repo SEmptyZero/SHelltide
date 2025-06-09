@@ -2,6 +2,7 @@ local utils     = require "core.utils"
 local tracker   = require "core.tracker"
 local enums     = require "data.enums"
 local explorerlite = require "core.explorerlite"
+local traversal = require "core.traversal"
 
 local current_city_index = 0
 
@@ -25,6 +26,7 @@ end
 search_helltide_states.SEARCHING_HELLTIDE = {
     enter = function(sm)
         explorerlite.toggle_anti_stuck = false
+        traversal.clear_persistent_cache()
     end,
     execute = function(sm)
         if is_time_between_55_and_00() and not utils.is_in_helltide() then
