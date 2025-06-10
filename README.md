@@ -1,8 +1,8 @@
-# S Helltide - Chests + Maiden Farming  - v1.1.8b BETA
+# S Helltide - Chests + Maiden Farming  - v1.2.5b BETA
 
 ## Features
-- Explores Helltide
-- Engages in combat with Elite/Champion/Boss during exploration
+- Explores Helltide and can use Traversal
+- Engages in combat with Elite/Champion/Boss during exploration and goblins
 - Detects and opens Helltide Chests if enough cinders are available; otherwise, stores them for later
 - Detects and opens Silent Chests if a key is available
 - Performs the ritual to summon the Maiden
@@ -38,6 +38,11 @@
 ### Chests Menu
 - **Open Silent Chests:** If enabled, the script will open Silent Chests
 - **Backtracking to Point Before Trigger:** Same as in the Maiden menu
+
+### Obols Menu
+- **Enable Gambling:** If enabled, the script will do Gambling
+- **Obols Threshold:** Minimum amount of Obols required before Gambling
+- **Gamble Category:** Select item category to gamble
 
 ## Reporting Issues & Feedback
 If you encounter any issues, have suggestions, or ideas, feel free to report them. Your feedback is appreciated!
