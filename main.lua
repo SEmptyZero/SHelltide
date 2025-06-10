@@ -64,9 +64,7 @@ on_render(function()
         for i, waypoint in ipairs(tracker.waypoints) do
             local dist = tracker.player_position:dist_to(waypoint)
             if dist <= 13 then
-                --graphics.circle_3d(waypoint, 5, colors.objectives, 1)
                 graphics.circle_3d(waypoint, 1, colors.objectives, 1)
-                --graphics.text_3d("WP " .. i .."\nZ: " .. waypoint:z(), waypoint, 15, colors.objectives)
                 graphics.text_3d("WP " .. i, waypoint, 15, colors.objectives)
             end
         end

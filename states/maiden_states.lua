@@ -40,12 +40,7 @@ maiden_states.GOTO_MAIDEN = {
         local reached = explore_states:navigate_to_waypoint(i)
         
         if not explorerlite.is_in_traversal_state then
-            local enemies = utils.find_enemies_in_radius(tracker.player_position, 3)
-            if #enemies > 0 then
-                orbwalker.set_clear_toggle(true)
-            else
-                orbwalker.set_clear_toggle(false)
-            end
+            utils.handle_orbwalker_auto_toggle(2, 2)
         end
         
         if reached then
@@ -88,7 +83,7 @@ maiden_states.CLEANING_MAIDEN_AREA = {
                 explorerlite:move_to_target()
             else
                 if tracker.check_time("random_circle_delay_helltide", 1.3) and pos_first_enemy then
-                    local new_pos = utils.get_random_point_circle(pos_first_enemy, 9, 1.2)
+                    local new_pos = utils.get_random_point_circle(pos_first_enemy, 9, 2)
                     if new_pos and not explorerlite:is_custom_target_valid() then
                         explorerlite:set_custom_target(new_pos)
                         tracker.clear_key("random_circle_delay_helltide")
@@ -248,7 +243,6 @@ function kite_enemies()
         if has_boss and current_time - last_boss_approach > boss_approach_cooldown then
             if boss_approach_timer == 0 then
                 boss_approach_timer = current_time
-                console.print("Avvicinandosi al boss per " .. boss_approach_duration .. " secondi")
             end
             
             if current_time - boss_approach_timer < boss_approach_duration then

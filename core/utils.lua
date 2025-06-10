@@ -82,8 +82,7 @@ end
 
 function utils.get_random_point_circle(targetPos, ray, max_z_diff)
     local player = tracker.player_position
-    local explorerlite = require "core.explorerlite"
-    max_z_diff = max_z_diff or 0.5
+    max_z_diff = max_z_diff or 1
     
     local angle = math.random() * 2 * math.pi
     local r = ray * math.sqrt(math.random())
@@ -92,16 +91,18 @@ function utils.get_random_point_circle(targetPos, ray, max_z_diff)
         targetPos:y() + math.sin(angle) * r,
         targetPos:z()
     )
-    
     newPos = utility.set_height_of_valid_position(newPos)
-    
-    if math.abs(newPos:z() - player:z()) <= max_z_diff then
+
+    local z_check_passed = (max_z_diff == nil) or (max_z_diff == math.huge) or (math.abs(newPos:z() - player:z()) <= max_z_diff)
+
+    if z_check_passed then
         if utility.is_point_walkeable(newPos) then
             return newPos
         end
     end
     
-    return nil
+
+    return targetPos
 end
 
 function utils.find_closest_target(name)
@@ -126,12 +127,12 @@ function utils.find_closest_target(name)
     return nil
 end
 
-function utils.find_target_by_position(targetPos, tol)
+function utils.find_target_by_position_n_name(targetPos, name, tol)
     tol = tol or 1
     local all_targets = tracker.all_actors
     for _, obj in ipairs(all_targets) do
         local pos = obj:get_position()
-        if pos and targetPos and pos:dist_to(targetPos) < tol then
+        if pos and targetPos and pos:dist_to(targetPos) < tol and obj:get_skin_name() == name then
             return obj
         end
     end
@@ -331,6 +332,18 @@ function utils.is_valid_target(enemy)
     local is_goblin = enemy_name:match("[Gg]oblin")
     
     return is_special_enemy or is_goblin
+end
+
+function utils.handle_orbwalker_auto_toggle(radius, min_enemies_count)
+    radius = radius or 1.5
+    min_enemies_count = min_enemies_count or 0
+    
+    local enemies = utils.find_enemies_in_radius(tracker.player_position, radius)
+    if #enemies > min_enemies_count then
+        orbwalker.set_clear_toggle(true)
+    else
+        orbwalker.set_clear_toggle(false)
+    end
 end
 
 return utils

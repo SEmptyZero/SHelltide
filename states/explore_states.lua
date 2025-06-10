@@ -153,12 +153,7 @@ explore_states.BACKTRACKING_TO_WAYPOINT = {
         local reached = explore_states:navigate_to_waypoint(tracker.return_point)
         
         if not explorerlite.is_in_traversal_state then
-            local enemies = utils.find_enemies_in_radius(tracker.player_position, 1.5)
-            if #enemies > 0 then
-                orbwalker.set_clear_toggle(true)
-            else
-                orbwalker.set_clear_toggle(false)
-            end
+            utils.handle_orbwalker_auto_toggle(2, 2)
         end
         
         if reached then
@@ -196,12 +191,7 @@ explore_states.NAVIGATE_TO_WAYPOINT = {
         local reached = explore_states:navigate_to_waypoint(i)
 
         if not explorerlite.is_in_traversal_state then
-            local enemies = utils.find_enemies_in_radius(tracker.player_position, 1.5)
-            if #enemies > 0 then
-                orbwalker.set_clear_toggle(true)
-            else
-                orbwalker.set_clear_toggle(false)
-            end
+            utils.handle_orbwalker_auto_toggle(2, 2)
         end
 
         if reached then
@@ -272,7 +262,7 @@ explore_states.EXPLORE_HELLTIDE = {
                     explorerlite:move_to_target()
                 else
                     if tracker.check_time("random_circle_delay_alfred", 1.3) and pos_enemy then
-                        local new_pos = utils.get_random_point_circle(pos_enemy, 9, 1.2)
+                        local new_pos = utils.get_random_point_circle(pos_enemy, 9, 2)
                         if new_pos and not explorerlite:is_custom_target_valid() then
                             explorerlite:set_custom_target(new_pos)
                             tracker.clear_key("random_circle_delay_alfred")
@@ -316,12 +306,7 @@ explore_states.EXPLORE_HELLTIDE = {
         --explorerlite:move_to_target()
 
         if not explorerlite.is_in_traversal_state then
-            local enemies = utils.find_enemies_in_radius(tracker.player_position, 1.5)
-            if #enemies > 0 then
-                orbwalker.set_clear_toggle(true)
-            else
-                orbwalker.set_clear_toggle(false)
-            end
+            utils.handle_orbwalker_auto_toggle(2, 2)
         end
 
         --START FIGHT ENEMIES
@@ -418,7 +403,10 @@ explore_states.EXPLORE_HELLTIDE = {
                 if explorerlite:is_custom_target_valid() then
                     explorerlite:move_to_target()
                 else
-                    explorerlite:set_custom_target(current_waypoint)
+                    local rand_pos = utils.get_random_point_circle(current_waypoint, 2, math.huge)
+                    if rand_pos then
+                        explorerlite:set_custom_target(rand_pos)
+                    end
                 end        
             end
         end
@@ -538,12 +526,7 @@ explore_states.RESURRECT_AND_RETURN = {
 
         local reached = explore_states:navigate_to_waypoint(tracker.waypoint_index)
         if not explorerlite.is_in_traversal_state then
-            local enemies = utils.find_enemies_in_radius(tracker.player_position, 1.5)
-            if #enemies > 0 then
-                orbwalker.set_clear_toggle(true)
-            else
-                orbwalker.set_clear_toggle(false)
-            end
+            utils.handle_orbwalker_auto_toggle(2, 2)
         end
 
         if reached then

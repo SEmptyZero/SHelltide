@@ -63,7 +63,7 @@ obols_states.OBOLS_TRIGGERED = {
                 explorerlite:move_to_target()
             else
                 if tracker.check_time("random_circle_delay_alfred", 1.3) and pos_enemy then
-                    local new_pos = utils.get_random_point_circle(pos_enemy, 9, 1.2)
+                    local new_pos = utils.get_random_point_circle(pos_enemy, 9, 2)
                     if new_pos and not explorerlite:is_custom_target_valid() then
                         explorerlite:set_custom_target(new_pos)
                         tracker.clear_key("random_circle_delay_alfred")
