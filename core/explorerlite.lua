@@ -1,7 +1,6 @@
 local tracker = require "core.tracker"
 local gui = require "gui"
 local traversal = require "core.traversal"
-local a_star_waypoints = require "core.a_star_waypoints"
 
 local MinHeap = {}
 MinHeap.__index = MinHeap
@@ -133,7 +132,9 @@ function explorerlite:clear_path_and_target()
     last_movement_direction = nil
     
     if self.is_in_traversal_state then
-        orbwalker.set_clear_toggle(false)
+        if not gui.elements.manual_clear_toggle:get() then
+            orbwalker.set_clear_toggle(false)
+        end
         self.is_in_traversal_state = false
     end
 end
@@ -554,7 +555,9 @@ function explorerlite:move_to_target()
             end
 
             if not upcoming_traversal and not current_traversal and not recent_traversal and explorerlite.is_in_traversal_state then
-                orbwalker.set_clear_toggle(false)
+                if not gui.elements.manual_clear_toggle:get() then
+                    orbwalker.set_clear_toggle(false)
+                end
                 explorerlite.is_in_traversal_state = false
             end
 
@@ -596,10 +599,6 @@ function explorerlite:is_custom_target_valid()
     if not player_pos then return false end
 
     return true
-end
-
-function explorerlite:a_star_waypoint(start_index, target_index, range_threshold)
-    return a_star_waypoints.a_star_waypoint(start_index, target_index, range_threshold)
 end
 
 local STUCK_TIME_THRESHOLD = 3.0

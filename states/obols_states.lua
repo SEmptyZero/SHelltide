@@ -54,7 +54,9 @@ obols_states.OBOLS_TRIGGERED = {
         local nearby_enemies = utils.find_enemies_in_radius_with_z(olbs_triggered_pos, 15, 2)
             
         if #nearby_enemies > 0 then
-            orbwalker.set_clear_toggle(true)
+            if not gui.elements.manual_clear_toggle:get() then
+                orbwalker.set_clear_toggle(true)
+            end
             local random_enemy = nearby_enemies[math.random(#nearby_enemies)]
             local pos_enemy = random_enemy:get_position()
             
@@ -72,7 +74,9 @@ obols_states.OBOLS_TRIGGERED = {
                 explorerlite:move_to_target()
             end
         else
-            orbwalker.set_clear_toggle(false)
+            if not gui.elements.manual_clear_toggle:get() then
+                orbwalker.set_clear_toggle(false)
+            end
             if tracker.check_time("teleport_timer_3_seconds", 3) then
                 teleport_to_waypoint(enums.waypoints.CERRIGAR)
                 tracker.clear_key("teleport_timer_3_seconds")

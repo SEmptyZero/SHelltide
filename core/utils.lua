@@ -335,9 +335,14 @@ function utils.is_valid_target(enemy)
 end
 
 function utils.handle_orbwalker_auto_toggle(radius, min_enemies_count)
+    if gui.elements.manual_clear_toggle:get() then
+        return
+    end
+    
     radius = radius or 1.5
     min_enemies_count = min_enemies_count or 0
-    
+
+
     local enemies = utils.find_enemies_in_radius(tracker.player_position, radius)
     if #enemies > min_enemies_count then
         orbwalker.set_clear_toggle(true)

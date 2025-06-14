@@ -1,5 +1,5 @@
 local gui = {}
-local version = "v1.2.5b"
+local version = "v1.2.6b"
 local plugin_label = "s_helltide"
 local author = "EmptyZero"
 
@@ -48,6 +48,7 @@ gui.elements = {
     main_tree = tree_node:new(0),
     main_toggle = create_checkbox(false, "main_toggle"),
     debug_toggle = create_checkbox(false, "debug_toggle"),
+    manual_clear_toggle = create_checkbox(false, "manual_clear_toggle"),
 
     draw_status_settings_tree = tree_node:new(1),
     draw_status_offset_x = create_slider_int(0, 2000, 0, "draw_status_offset_x"),
@@ -128,12 +129,13 @@ function gui.render()
 
     gui.elements.main_toggle:render("Enable", "Enable the bot")
     gui.elements.maiden_enable_first_maiden_toggle:render("Start rotation from the Maiden", "If enabled, it will start by farming the Maiden (you need at least 3 hearts)")
+    gui.elements.manual_clear_toggle:render("Enable 'Manual Clear-Toggle'", "If disabled, the bot will handle the 'Clear Toggle' automatically, otherwise the player will have to activate it")
     --gui.elements.debug_toggle:render("Enable Debug", "Enable debug mode")
 
     -- Menu Status
     if gui.elements.draw_status_settings_tree:push("Info / Status - Settings") then
-        gui.elements.draw_status_offset_x:render("In-Game Offset X","Modify the in-game Info/Status GUI position for the X-axis")
-        gui.elements.draw_status_offset_y:render("In-Game Offset Y","Modify the in-game Info/Status GUI position for the Y-axis")
+        gui.elements.draw_status_offset_x:render("In-Game GUI Offset X","Modify the in-game Info/Status GUI position for the X-axis")
+        gui.elements.draw_status_offset_y:render("In-Game GUI Offset Y","Modify the in-game Info/Status GUI position for the Y-axis")
         gui.elements.draw_status_settings_tree:pop()
     end
 

@@ -1,6 +1,7 @@
 local utils          = require "core.utils"
 local tracker        = require "core.tracker"
 local explorerlite   = require "core.explorerlite"
+local gui            = require "gui"
 
 local battles_states = {}
 
@@ -15,7 +16,9 @@ battles_states.FIGHT_ELITE_CHAMPION = {
         explorerlite.is_task_running = false
         console.print("HELLTIDE: FIGHT_ELITE_CHAMPION")
         explorerlite:clear_path_and_target()
-        orbwalker.set_clear_toggle(true)
+        if not gui.elements.manual_clear_toggle:get() then
+            orbwalker.set_clear_toggle(true)
+        end
         
         tracker.clear_key("limit_state_fight")
         if not tracker.target_selector then
@@ -86,7 +89,9 @@ battles_states.WAIT_AFTER_FIGHT = {
         end
     end,
     exit = function(sm)
-        orbwalker.set_clear_toggle(false)
+        if not gui.elements.manual_clear_toggle:get() then
+            orbwalker.set_clear_toggle(false)
+        end
     end,
 }
 

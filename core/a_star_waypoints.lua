@@ -1,7 +1,7 @@
 local tracker = require "core.tracker"
+local explorerlite = require "core.explorerlite"
 
 local a_star_waypoints = {}
-
 -- MinHeap implementation for A* algorithm
 local MinHeap = {}
 MinHeap.__index = MinHeap
@@ -87,8 +87,7 @@ function MinHeap:pop()
     return root
 end
 
-function a_star_waypoints.a_star_waypoint(start_index, target_index, range_threshold)
-    local waypoints = tracker.waypoints
+function a_star_waypoints.a_star_waypoint(waypoints, start_index, target_index, range_threshold)
     if not waypoints or type(waypoints) ~= "table" or #waypoints == 0 then
         console.print("11111111111111111111111111")
         return nil
@@ -208,6 +207,67 @@ function a_star_waypoints.a_star_waypoint(start_index, target_index, range_thres
         ::continue_loop::
     end
     return nil
+end
+
+function a_star_waypoints.get_closest_waypoint_index(waypoints, target_position, min_margin)
+    local min_dist = math.huge
+    local closest_index = nil
+    min_margin = min_margin or 2
+
+    for i, wp in ipairs(waypoints) do
+        local d = target_position:dist_to(wp)
+        if d >= min_margin and d < min_dist then
+            min_dist = d
+            closest_index = i
+        end
+    end
+
+    return closest_index
+end
+
+function a_star_waypoints.navigate_to_waypoint(waypoints, start_index, target_index)
+    if not waypoints or #waypoints == 0 then
+        return false
+    end
+
+    local current_index = start_index or 1
+
+    if tracker.current_target_index == nil or tracker.current_target_index ~= target_index or tracker.a_start_waypoint_path == nil then
+        tracker.current_target_index = target_index
+        local range_threshold = 35
+        local path = a_star_waypoints.a_star_waypoint(waypoints, current_index, target_index, range_threshold)
+        if not path then
+            return false
+        end
+
+        tracker.a_start_waypoint_path = path
+        tracker.current_path_index = 1
+        console.print(table.concat(path, " -> "))
+    end
+
+    local path = tracker.a_start_waypoint_path
+    local player_pos = tracker.player_position
+    local current_path_index = tracker.current_path_index
+    local current_wp = waypoints[path[current_path_index]]
+
+    if player_pos:dist_to(current_wp) < 3 then
+        if current_path_index == #path then
+            tracker.a_start_waypoint_path = nil
+            tracker.current_target_index = nil
+            tracker.current_path_index = nil
+            return true
+        else
+            tracker.current_path_index = tracker.current_path_index + 1
+        end
+    end
+
+    local next_wp = waypoints[path[tracker.current_path_index]]
+    if next_wp then
+        explorerlite:set_custom_target(next_wp)
+        explorerlite:move_to_target()
+    end
+
+    return false
 end
 
 return a_star_waypoints

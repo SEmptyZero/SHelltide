@@ -3,6 +3,8 @@ local tracker        = require "core.tracker"
 local explorerlite   = require "core.explorerlite"
 local explore_states = require "states.explore_states"
 local gui            = require "gui"
+local combat_manager = require "core.combat_manager"
+local a_star_waypoint = require "core.a_star_waypoints"
 
 local maiden_states = {}
 
@@ -22,7 +24,9 @@ maiden_states.GOTO_MAIDEN = {
     enter = function(sm)
         explorerlite.is_task_running = false
         console.print("HELLTIDE: GOTO_MAIDEN")
-        orbwalker.set_clear_toggle(false)
+        if not gui.elements.manual_clear_toggle:get() then
+            orbwalker.set_clear_toggle(false)
+        end
 
         if #tracker.waypoints > 0 and utils.distance_to(tracker.waypoints[1]) > 8 then
             local nearest_index = explore_states:find_closest_waypoint_index(tracker.waypoints)
@@ -31,13 +35,13 @@ maiden_states.GOTO_MAIDEN = {
         end
     end,
     execute = function(sm)
-        local i = explore_states:get_closest_waypoint_index(tracker.current_maiden_position)
+        local i = a_star_waypoint.get_closest_waypoint_index(tracker.waypoints,tracker.current_maiden_position)
         if not i then
             console.print("Nessun waypoint trovato vicino a return_point!")
             return
         end
         
-        local reached = explore_states:navigate_to_waypoint(i)
+        local reached = a_star_waypoint.navigate_to_waypoint(tracker.waypoints,tracker.waypoint_index,i)
         
         if not explorerlite.is_in_traversal_state then
             utils.handle_orbwalker_auto_toggle(2, 2)
@@ -72,7 +76,9 @@ maiden_states.CLEANING_MAIDEN_AREA = {
     enter = function(sm)
         explorerlite.is_task_running = false
         console.print("HELLTIDE: CLEANING_MAIDEN_AREA")
-        orbwalker.set_clear_toggle(true)
+        if not gui.elements.manual_clear_toggle:get() then
+            orbwalker.set_clear_toggle(true)
+        end
     end,
     execute = function(sm)
         local nearby_enemies = utils.find_enemies_in_radius(tracker.current_maiden_position, 8)
@@ -102,7 +108,9 @@ maiden_states.CLEANING_MAIDEN_AREA = {
         end
     end,
     exit = function(sm)
-        orbwalker.set_clear_toggle(false)
+        if not gui.elements.manual_clear_toggle:get() then
+            orbwalker.set_clear_toggle(false)
+        end
     end,
 }
 
@@ -184,164 +192,16 @@ maiden_states.INTERACT_ALTAR = {
     end,
 }
 
-local boss_approach_timer = 0
-local boss_approach_duration = 2
-local boss_approach_cooldown = 8
-local last_boss_approach = 0
-local circle_angle = 0
-local circle_direction = 1
 
-function update_maiden_enemies()
-    local maiden_pos = tracker.current_maiden_position
-    local radius = 20
-    local nearby_enemies = utils.find_targets_in_radius(maiden_pos, radius)
-
-    tracker.maiden_enemies = {}
-    tracker.maiden_boss = nil
-
-    for _, enemy in ipairs(nearby_enemies) do
-        if not enemy:is_dead() 
-           and (enemy:is_enemy() or enemy:is_elite() or enemy:is_champion()) 
-           and not enemy:is_interactable() 
-           and not enemy:is_untargetable() then
-            
-            if enemy:get_skin_name() == "S04_demon_succubus_miniboss" then
-                tracker.maiden_boss = enemy
-            else
-                table.insert(tracker.maiden_enemies, enemy)
-            end
-        end
-    end
-end
-
-function kite_enemies()
-    update_maiden_enemies()
-    
-    local current_time = get_time_since_inject()
-    local player_pos = tracker.player_position
-    local maiden_pos = tracker.current_maiden_position
-    local max_radius = 18
-    
-    local has_regular_enemies = #tracker.maiden_enemies > 0
-    local has_boss = tracker.maiden_boss ~= nil
-    
-    if has_regular_enemies then
-        local center_x, center_y, center_z = 0, 0, 0
-        for _, enemy in ipairs(tracker.maiden_enemies) do
-            local pos = enemy:get_position()
-            center_x = center_x + pos:x()
-            center_y = center_y + pos:y()
-            center_z = center_z + pos:z()
-        end
-        
-        center_x = center_x / #tracker.maiden_enemies
-        center_y = center_y / #tracker.maiden_enemies
-        center_z = center_z / #tracker.maiden_enemies
-        
-        local enemies_center = vec3:new(center_x, center_y, center_z)
-        
-        if has_boss and current_time - last_boss_approach > boss_approach_cooldown then
-            if boss_approach_timer == 0 then
-                boss_approach_timer = current_time
-            end
-            
-            if current_time - boss_approach_timer < boss_approach_duration then
-                local boss_pos = tracker.maiden_boss:get_position()
-                if utils.distance_to(boss_pos) > 3 then
-                    explorerlite:set_custom_target(boss_pos)
-                    explorerlite:move_to_target()
-                end
-                return
-            else
-                boss_approach_timer = 0
-                last_boss_approach = current_time
-            end
-        end
-        
-        circle_angle = circle_angle + (circle_direction * 0.8)
-        if circle_angle > 360 then
-            circle_angle = 0
-        elseif circle_angle < 0 then
-            circle_angle = 360
-        end
-        
-        if math.random() < 0.01 then
-            circle_direction = circle_direction * -1
-        end
-        
-        local circle_radius = 8
-        local angle_rad = math.rad(circle_angle)
-        local target_pos = vec3:new(
-            enemies_center:x() + circle_radius * math.cos(angle_rad),
-            enemies_center:y() + circle_radius * math.sin(angle_rad),
-            enemies_center:z()
-        )
-        
-        target_pos = utility.set_height_of_valid_position(target_pos)
-        
-        if utility.is_point_walkeable(target_pos) and utils.calculate_distance(target_pos, maiden_pos) <= max_radius then
-            explorerlite:set_custom_target(target_pos)
-            explorerlite:move_to_target()
-        end
-        
-    elseif has_boss then
-        if current_time - last_boss_approach > boss_approach_cooldown then
-            if boss_approach_timer == 0 then
-                boss_approach_timer = current_time
-            end
-            
-            if current_time - boss_approach_timer < boss_approach_duration then
-                local boss_pos = tracker.maiden_boss:get_position()
-                if utils.distance_to(boss_pos) > 3 then
-                    explorerlite:set_custom_target(boss_pos)
-                    explorerlite:move_to_target()
-                end
-                return
-            else
-                boss_approach_timer = 0
-                last_boss_approach = current_time
-            end
-        end
-        
-        local random_angle = math.random() * 2 * math.pi
-        local random_distance = math.random(5, 12)
-        local random_pos = vec3:new(
-            maiden_pos:x() + random_distance * math.cos(random_angle),
-            maiden_pos:y() + random_distance * math.sin(random_angle),
-            maiden_pos:z()
-        )
-        
-        random_pos = utility.set_height_of_valid_position(random_pos)
-        
-        if utility.is_point_walkeable(random_pos) and utils.calculate_distance(random_pos, maiden_pos) <= max_radius then
-            explorerlite:set_custom_target(random_pos)
-            explorerlite:move_to_target()
-        end
-        
-    else
-        local random_angle = math.random() * 2 * math.pi
-        local random_distance = math.random(8, 15)
-        local random_pos = vec3:new(
-            maiden_pos:x() + random_distance * math.cos(random_angle),
-            maiden_pos:y() + random_distance * math.sin(random_angle),
-            maiden_pos:z()
-        )
-        
-        random_pos = utility.set_height_of_valid_position(random_pos)
-        
-        if utility.is_point_walkeable(random_pos) and utils.calculate_distance(random_pos, maiden_pos) <= max_radius then
-            explorerlite:set_custom_target(random_pos)
-            explorerlite:move_to_target()
-        end
-    end
-end
 
 --S04_demon_succubus_miniboss
 maiden_states.MAIDEN_IS_COMING = {
     enter = function(sm)
         explorerlite.is_task_running = false
         console.print("HELLTIDE: MAIDEN_IS_COMING")
-        orbwalker.set_clear_toggle(true)
+        if not gui.elements.manual_clear_toggle:get() then
+            orbwalker.set_clear_toggle(true)
+        end
         tracker.clear_key("helltide_ended_timeout")
     end,
     execute = function(sm)
@@ -375,10 +235,12 @@ maiden_states.MAIDEN_IS_COMING = {
             end
         end
 
-        kite_enemies()
+        combat_manager.kite_enemies()
     end,
     exit = function(sm)
-        orbwalker.set_clear_toggle(false)
+        if not gui.elements.manual_clear_toggle:get() then
+            orbwalker.set_clear_toggle(false)
+        end
         tracker.clear_key("helltide_ended_timeout")
     end,
 }

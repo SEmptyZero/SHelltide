@@ -4,6 +4,7 @@ local explorerlite   = require "core.explorerlite"
 local settings       = require "core.settings"
 local enums          = require "data.enums"
 local gui            = require "gui"
+local a_star_waypoint         = require "core.a_star_waypoints"
 
 local explore_states = {}
 
@@ -65,64 +66,6 @@ function explore_states:find_closest_waypoint_index(waypoints)
     return index
 end
 
-function explore_states:get_closest_waypoint_index(target_position, min_margin)
-    local min_dist = math.huge
-    local closest_index = nil
-    min_margin = min_margin or 2
-
-    for i, wp in ipairs(tracker.waypoints) do
-        local d = target_position:dist_to(wp)
-        if d >= min_margin and d < min_dist then
-            min_dist = d
-            closest_index = i
-        end
-    end
-
-    return closest_index
-end
-
-function explore_states:navigate_to_waypoint(target_index)
-    local waypoints = tracker.waypoints
-    if not waypoints or #waypoints == 0 then
-        return false
-    end
-
-    local current_index = tracker.waypoint_index or 1
-
-    if tracker.current_target_index == nil or tracker.current_target_index ~= target_index or tracker.a_start_waypoint_path == nil then
-        tracker.current_target_index = target_index
-        local range_threshold = 35
-        local path = explorerlite:a_star_waypoint(current_index, target_index, range_threshold)
-        if not path then
-            return false
-        end
-
-        tracker.a_start_waypoint_path = path
-        tracker.current_path_index = 1
-        console.print(table.concat(path, " -> "))
-    end
-
-    local path = tracker.a_start_waypoint_path
-    local player_pos = tracker.player_position
-    local current_path_index = tracker.current_path_index
-    local current_wp = waypoints[path[current_path_index]]
-
-    if player_pos:dist_to(current_wp) < 3 then
-        if current_path_index == #path then
-            return true
-        else
-            tracker.current_path_index = tracker.current_path_index + 1
-        end
-    end
-
-    local next_wp = waypoints[path[tracker.current_path_index]]
-    if next_wp then
-        explorerlite:set_custom_target(next_wp)
-        explorerlite:move_to_target()
-    end
-
-    return false
-end
 
 local skipStates = {
     NEW_CHEST_FOUND = true,
@@ -150,7 +93,7 @@ explore_states.BACKTRACKING_TO_WAYPOINT = {
             return
         end
 
-        local reached = explore_states:navigate_to_waypoint(tracker.return_point)
+        local reached = a_star_waypoint.navigate_to_waypoint(tracker.waypoints,tracker.waypoint_index,tracker.return_point)
         
         if not explorerlite.is_in_traversal_state then
             utils.handle_orbwalker_auto_toggle(2, 2)
@@ -182,13 +125,13 @@ explore_states.NAVIGATE_TO_WAYPOINT = {
             return
         end
 
-        local i = explore_states:get_closest_waypoint_index(tracker.return_point)
+        local i = a_star_waypoint.get_closest_waypoint_index(tracker.waypoints, tracker.return_point)
         if not i then
             console.print("Nessun waypoint trovato vicino a return_point!")
             return
         end
 
-        local reached = explore_states:navigate_to_waypoint(i)
+        local reached = a_star_waypoint.navigate_to_waypoint(tracker.waypoints,tracker.waypoint_index, i)
 
         if not explorerlite.is_in_traversal_state then
             utils.handle_orbwalker_auto_toggle(2, 2)
@@ -215,7 +158,9 @@ explore_states.EXPLORE_HELLTIDE = {
     enter = function(sm)
         console.print("HELLTIDE: EXPLORE_HELLTIDE")
         explorerlite.is_task_running = false
-        orbwalker.set_clear_toggle(false)
+        if not gui.elements.manual_clear_toggle:get() then
+            orbwalker.set_clear_toggle(false)
+        end
         tracker.clear_key("explore_helltide_traversal_periodic_check")
 
         if skipStates[sm:get_previous_state()] then
@@ -253,7 +198,9 @@ explore_states.EXPLORE_HELLTIDE = {
             local nearby_enemies = utils.find_enemies_in_radius_with_z(tracker.player_position, 15, 2)
             
             if #nearby_enemies > 0 then
-                orbwalker.set_clear_toggle(true)
+                if not gui.elements.manual_clear_toggle:get() then
+                    orbwalker.set_clear_toggle(true)
+                end
                 local random_enemy = nearby_enemies[math.random(#nearby_enemies)]
                 local pos_enemy = random_enemy:get_position()
                 
@@ -271,7 +218,9 @@ explore_states.EXPLORE_HELLTIDE = {
                     explorerlite:move_to_target()
                 end
             else
-                orbwalker.set_clear_toggle(false)
+                if not gui.elements.manual_clear_toggle:get() then
+                    orbwalker.set_clear_toggle(false)
+                end
                 sm:change_state("ALFRED_TRIGGERED")
                 return
             end
@@ -431,11 +380,13 @@ explore_states.LAP_COMPLETED = {
 explore_states.RETURN_CITY = {
     enter = function(sm)
         console.print("HELLTIDE: RETURN_CITY")
-        orbwalker.set_clear_toggle(false)
+        if not gui.elements.manual_clear_toggle:get() then
+            orbwalker.set_clear_toggle(false)
+        end
         explorerlite.toggle_anti_stuck = false
     end,
     execute = function(sm)
-        local reached = explore_states:navigate_to_waypoint(1)
+        local reached = a_star_waypoint.navigate_to_waypoint(tracker.waypoints,tracker.waypoint_index, 1)
 
         if reached then
             sm:change_state("SEARCHING_HELLTIDE")
@@ -507,7 +458,9 @@ explore_states.RESURRECT_AND_RETURN = {
     enter = function(sm)
         console.print("HELLTIDE: RESURRECT_AND_RETURN entered.")
         explorerlite.is_task_running = false
-        orbwalker.set_clear_toggle(false)
+        if not gui.elements.manual_clear_toggle:get() then
+            orbwalker.set_clear_toggle(false)
+        end
         explorerlite:clear_path_and_target()
     end,
     execute = function(sm)
@@ -524,7 +477,7 @@ explore_states.RESURRECT_AND_RETURN = {
             return
         end
 
-        local reached = explore_states:navigate_to_waypoint(tracker.waypoint_index)
+        local reached = a_star_waypoint.navigate_to_waypoint(tracker.waypoints,tracker.waypoint_index, tracker.waypoint_index)
         if not explorerlite.is_in_traversal_state then
             utils.handle_orbwalker_auto_toggle(2, 2)
         end
@@ -540,7 +493,9 @@ explore_states.RESURRECT_AND_RETURN = {
     end,
     exit = function(sm)
         console.print("HELLTIDE: Exiting RESURRECT_AND_RETURN.")
-        orbwalker.set_clear_toggle(false)  
+        if not gui.elements.manual_clear_toggle:get() then
+            orbwalker.set_clear_toggle(false)
+        end
     end,
 }
 

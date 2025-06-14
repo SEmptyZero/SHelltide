@@ -71,7 +71,9 @@ chests_states.MOVING_TO_CHEST = {
         
         local nearby_enemies = utils.find_enemies_in_radius_with_z(current_chest_saved_pos, 15, 2)
         if #nearby_enemies > 1 and utils.distance_to(current_chest_saved_pos) < 15 then
-            orbwalker.set_clear_toggle(true)
+            if not gui.elements.manual_clear_toggle:get() then
+                orbwalker.set_clear_toggle(true)
+            end
             local pos_first_enemy = nearby_enemies[1]:get_position()
             if utils.distance_to(nearby_enemies[1]) > 10 then
                 explorerlite:set_custom_target(pos_first_enemy)
@@ -88,7 +90,9 @@ chests_states.MOVING_TO_CHEST = {
                 explorerlite:move_to_target()
             end
         else
-            orbwalker.set_clear_toggle(false)
+            if not gui.elements.manual_clear_toggle:get() then
+                orbwalker.set_clear_toggle(false)
+            end
             if utils.distance_to_ignore_z(current_chest_saved_pos) > 1.9 or utils.distance_to(current_chest_saved_pos) > 1.9 then
                 explorerlite:set_custom_target(current_chest_saved_pos)
                 explorerlite:move_to_target()
